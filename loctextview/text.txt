@@ -1,0 +1,23 @@
+Asterix XXL2 Text format (in 0xGLOC.KWN)
+
++------------------+
+| String structure |
++------------------+
+
+(u32	u32 strid;		String ID)
+u32	u32 num_wchars;		Num Wide-characthers
+u16+	wchar str[num_wchars];	Unicode string
+
+Jumping from the begin of the Unicode string to +(numwchars*2) will go to the
+next num_wchars of the next string.
+String ends with 0x0000.
+
+Special characters found:
+26 20 ('&' 0x2026)
+2E 00 (0x2E)
+7E 00 ('~' 0x7E, often placed before one or more '!' and ':')
+00 E0 (0xE000 Action)
+01 E0 (0xE001 ?)
+07 E0 (0xE007 Attaque secondaire)
+08 E0 (0xE008 Catch)
+09 E0 (0xE009 ?)

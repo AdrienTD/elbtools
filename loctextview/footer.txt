@@ -1,0 +1,18 @@
+Begin:
+0x0000C: int eoff = (1)<0x12AC2> After the texts offset
+
+After the texts:
+int unk1 = 0x0D (CR)
+int unk2 = 0x27
+int unk3 = (1)<76494> or (2)<68690> (Offset of unk4) (~size?)
+int unk4 = 0x0D
+int unk5 = 0x2E
+int unk6 = (1)<76506> or (2)<68702> (Offset of unk7) (~size?)
+int unk7 = 0x0D
+int unk8 = 0x10
+int unk9 = (1)<547157> or (2)<472485> (File size)
+int unk10 = (1)<5> or (2)<4> (?)
+
+short fileNameSize = 24
+char fileName[24] = "texte_blanc-windows1.png" (no 0 at end)
+int unk1 = 24 (fileNameSize again?)
