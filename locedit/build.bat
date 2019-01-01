@@ -1,0 +1,1 @@
+@cl %* /EHsc /IC:\Users\Adrien\Downloads\wxMSW-3.0.4\include /IC:\Users\Adrien\Downloads\wxMSW-3.0.4\include\msvc *.cpp /DWXUSINGDLL /DwxMSVC_VERSION_AUTO /D_UNICODE /link /LIBPATH:C:\Users\Adrien\Downloads\wxMSW-3.0.4\lib\vc100_dll 

@@ -32,3 +32,10 @@
 *.pdb
 *.res
 *.ilk
+**/.vs/
+**/Debug/
+**/Release/
+**/x86/
+**/x64/
+*.manifest
+unused/
