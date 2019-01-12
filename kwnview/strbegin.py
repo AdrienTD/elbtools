@@ -1,11 +1,11 @@
-import os, struct
+﻿import os, struct
 
 def readpack(inputfile, fmt):
     return struct.unpack("<" + fmt, inputfile.read(struct.calcsize("<" + fmt)))
 
-#fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\aoxxl2demo\\Astérix & Obélix XXL2 DEMO\\LVL001\\STR01_00.KWN"
+fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\aoxxl2demo\\Astérix & Obélix XXL2 DEMO\\LVL001\\STR01_00.KWN"
 #fn = "C:\\Apps\\Asterix and Obelix XXL2\\LVL000\\LVL00.KWN"
-fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL006\\STR06_02.KWN"
+#fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL006\\STR06_02.KWN"
 kwn = open(fn, 'rb')
 
 for i in range(15):
@@ -13,7 +13,7 @@ for i in range(15):
     print('---- Class type', i, '----')
     for j in range(n):
         a, = readpack(kwn, "H")
-        #print(j,':',a)
+        print(j,':',a)
 
 print('Ended at', hex(kwn.tell()))
 

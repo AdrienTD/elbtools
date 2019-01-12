@@ -136,7 +136,7 @@ void MainFrame::OnOpen(wxCommandEvent& event)
 {
 	wxString s = wxFileSelector("Select a GLOC.KWN or LLOC.KWN file",
 			wxEmptyString, wxEmptyString, ".kwn",
-			"Localisation KWN file (*.KWN)|*.kwn",
+			"Localisation Kal file (*.KWN;*.KGC;*.KP2)|*.kwn;*.kgc;*.kp2",
 			wxFD_OPEN | wxFD_FILE_MUST_EXIST);
 	if(!s.empty())
 		//OpenLOC("00GLOC.KWN");
@@ -207,6 +207,7 @@ void MainFrame::OnList(wxCommandEvent& event)
 		else if (chk->type == 13 || chk->type == 0)
 		{
 			info += "Graphics!\n";
+		/*
 			char *pnt = (char*)chk->data;
 			uint32_t nfiles = *(uint32_t*)pnt; pnt += 4;
 			for (int i = 0; i < nfiles; i++)
@@ -219,6 +220,7 @@ void MainFrame::OnList(wxCommandEvent& event)
 				pnt += 12 + *(uint32_t*)(pnt + 4);
 				//if (i == 1) break;
 			}
+		*/
 		}
 		edtChkInfo->ChangeValue(info);
 	}

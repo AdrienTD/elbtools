@@ -42,10 +42,12 @@ kver = 1 # 1:XXL1, 2:XXL2, 3:OG
 ktype = 2 # 1:LVL (common sector), 2:STR (sector)
 
 #fn = "C:\\Apps\\Asterix and Obelix XXL2\\LVL001\\LVL01.KWN"
-fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL000\\LVL00.KWN"
-#Øfn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL006\\STR06_03.KWN"
+#fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL006\\LVL06.KWN"
+#fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL006\\LVL06fixed.KWN"
+fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL006\\STR06_03.KWN"
 #fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\aoxxl2demo\\Astérix & Obélix XXL2 DEMO\\LVL001\\LVL01.KWN"
-#fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\aoxxl2demo\\Astérix & Obélix XXL2 DEMO\\LVL001\\STR01_05.KWN"
+#fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\aoxxl2demo\\Astérix & Obélix XXL2 DEMO\\LVL001\\STR01_00.KWN"
+#fn = "C:\\Users\\Adrien\\Downloads\\ax2hack\\LVL00.KGC"
 ktype = 2 if (os.path.basename(fn).upper().find('STR') != -1) else 1
 
 kwnfile = open(fn, "rb") 
@@ -60,7 +62,7 @@ if ktype == 1:
     if kver == 1:
         kwnfile.seek(4, os.SEEK_CUR)
         fstbyte, = readpack(kwnfile, "B")
-        numz, = readpack(kwnfile, "I")
+        if True: numz, = readpack(kwnfile, "I")
         numa, = readpack(kwnfile, "I")
         for i in range(15):
             numb, = readpack(kwnfile, "H")
@@ -69,10 +71,10 @@ if ktype == 1:
             for j in range(numb):
                 h1,h2,b1 = readpack(kwnfile, "HHB")
                 if not (h1 == 0 and h2 == 0):
-                    l.append(j)
+                    l.append((j,h2,b1))
                     nc += 1
             idlist.append(l)
-        kwnfile.seek(12, os.SEEK_CUR)
+        kwnfile.seek(12 if True else 8, os.SEEK_CUR)
     else:
         fstbyte, = readpack(kwnfile, "B")
         stn1 = readpack(kwnfile, "16B")
@@ -84,7 +86,7 @@ if ktype == 1:
             for j in range(numb):
                 h1,h2,h3,b1,b2 = readpack(kwnfile, "HHHBB")
                 if not (h1 == 0 and h2 == 0 and h3 == 0):
-                    l.append(j)
+                    l.append((j,h2,b2))
                     nc += 1
                 for k in range(h3):
                     stnk = readpack(kwnfile, "16B")
@@ -101,7 +103,7 @@ elif ktype == 2:
         for j in range(numb):
             h, = readpack(kwnfile, "H")
             if h != 0:
-                l.append(j)
+                l.append((j,h,1))
                 nc += 1
         idlist.append(l)
 
@@ -110,11 +112,11 @@ print(idlist)
 troot = tree.AddRoot("KWN")
 if kver >= 2: grpord = [9,0,1,2,3,4,5,6,7,8,10,11,12,13,14]
 else:         grpord = [0,9,1,2,3,4,5,6,7,8,10,11,12,13,14]
-grpname = ['Managers', 'Services', 'Hooks', '? 3', 'Groups', '? 5',
+grpname = ['Managers', 'Services', 'Hooks', 'Hook Lives', 'Groups', 'Group Lives',
           'Components', 'Cameras', 'Cinematic blocs', 'Dictionaries',
           'Geometry', 'Nodes', '3D things', '2D things', 'Errors']
 
-cnfile = open('ax2demo_classes2.txt')
+cnfile = open('ax2demo_classes2.txt' if kver >= 2 else 'ax1_classes.txt')
 cnfile.readline()
 clname = {}
 for l in cnfile:
@@ -138,13 +140,18 @@ for i in range(15):
     print("Num. subchunks: ", nsubchk)
     cti = tree.AppendItem(troot, "%s (%08X)" % (grpname[d],o), data=0)
     for j in range(nsubchk):
-        sec = tree.AppendItem(cti, "%s (%08X)" % (getclname(d,idlist[d][j]),kwnfile.tell()), data=1)
+        sec = tree.AppendItem(cti, "%s (%08X)" % (getclname(d,idlist[d][j][0]),kwnfile.tell()), data=1)
         nextsubchkoff, = readpack(kwnfile, "I")
-        if ktype == 2:
-            readpack(kwnfile, "H")
-        subsub, = readpack(kwnfile, "I")
-        if subsub != 0:
-            kwnfile.seek(-4, os.SEEK_CUR)
+        #if ktype == 2:
+        #    readpack(kwnfile, "H")
+        #subsub, = readpack(kwnfile, "I")
+        #if subsub != 0:
+        #    kwnfile.seek(-4, os.SEEK_CUR)
+        if idlist[d][j][2]:
+             print(readpack(kwnfile, "H"))
+        #subsub, = readpack(kwnfile, "I")
+        #print(hex(subsub))
+        subsub = kwnfile.tell()
         k = 0
         while subsub < nextsubchkoff:
             tree.AppendItem(sec, "%i (%08X)" % (k,kwnfile.tell()), data=1)
@@ -169,6 +176,7 @@ def selchunkchanged(event):
         off = int(sp[1][1:-1], base=16)
         #else:
         #    off = int(sp[0], base=16)
+        print(off)
         kwnfile.seek(off, os.SEEK_SET)
         ebox.Clear()
         t = io.StringIO()

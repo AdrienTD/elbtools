@@ -1,0 +1,39 @@
+----------------
+GAME.KWN
+----------------
+
+num_chunks	4	Number of chunks
+quad		16	?
+num2		4	?
+
+[For every class]
+	type		4	Class Type (6 first bits) and ID
+	num_subchunks	4	Sum of this in all classes should be num_chunks
+	multidata	1	
+	(If multidata != 0)
+		quads		16*num_subchunks	? (IDs of chunks?)
+
+[For i in [0..num_chunks) ]
+nextoffset	4	Offset to next chunk
+data		?	Data of chunk
+
+Unused names of chunks
+
+----------------
+LVL??.KWN
+----------------
+
+nextoff		4	
+fstbyte		1	?
+quad		16	?
+numa		4	?
+
+[For each 15 class types]
+	numclasses	4	Num of classes
+	[For each class]
+		num_chunks	4	Number of chunks in total (including LVL and STR)
+		num_lvl_chk	4	Number of common sector (LVL) chunks
+		?		4
+		?		1
+		?		1	0=?, 1=Irreplaceable, 2=Replaceable
+

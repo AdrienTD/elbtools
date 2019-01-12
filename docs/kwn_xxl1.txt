@@ -1,0 +1,54 @@
+----------------
+GAME.KWN/.KGC/.KP2
+----------------
+
+num_classes	4	Number of classes
+num2		4	?
+
+[For every class]
+	type		4	Class Type
+	id		4	Class ID
+	nextoff		4	Absolute offset to next class
+	data		?	Data of class
+
+----------------
+LVL??.KWN
+----------------
+
+numz		4	?
+*obssize	4	Size of obfuscated class table (PC only because of DRM, not present on consoles)
+fstbyte		1	?
+numa		4	?
+
+[For each 15 class types]
+	numclasses	2	Num of classes
+	[For each class]
+		num_tot_chks	2	Number of chunks in total (including LVL and STR)
+		num_lvl_chks	2	Number of common sector (LVL) chunks
+		info		1	0=?, 1=Irreplaceable, 2=Replaceable
+
+[For each 15 class types]
+	numclasses	2	Num of classes
+	nexttype	4	Abs offset to next type
+	[For each class]
+		[If class.info > 0]
+			startid		2	ID of first chunk (generally 0)
+		[For each chunk (see num_str_chk)]
+			nextoff		4	Abs offset to next chunk
+
+----------------
+STR??.KWN
+----------------
+
+[For each 15 class types]
+	numclasses	2	Num of classes
+	[For each class]
+		num_str_chk	2	Number of noncommun sector (STR) chunks
+
+[For each 15 class types]
+	numclasses	2	Num of classes
+	nexttype	4	Abs offset to next type
+	[For each class]
+		startid		2	ID of first chunk (chunk IDs before are for LVL)
+		[For each chunk (see num_str_chk)]
+			nextoff		4	Abs offset to next chunk
