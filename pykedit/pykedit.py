@@ -1,6 +1,9 @@
 import io, os, struct, wx
 import chkviewers
 
+import ctypes
+ctypes.windll.user32.SetProcessDPIAware()
+
 def readpack(inputfile, fmt):
     return struct.unpack("<" + fmt, inputfile.read(struct.calcsize("<" + fmt)))
 
@@ -73,21 +76,110 @@ cbook.AddPage(ebox, "Hex")
 ebox.SetFont(wx.Font(12, wx.FONTFAMILY_MODERN, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
 split1.SplitVertically(tree, cbook, 150)
 notebook.AddPage(split1, "Chunks")
-troot = tree.AddRoot("World")
 cvw = None
 
 def savelvl(event):
     lvl.save('test.kwn')
 
+def openkf(event):
+    global lvl, sec, loc
+    fn = wx.FileSelector("Open K file", wildcard="K file (*.kwn;*.kgc;*.kp2)|*.kwn;*.kgc;*.kp2")
+    if fn.strip():
+        name = os.path.basename(fn).upper()
+        print(name)
+        if name.find('LVL') != -1:
+            lvl = LevelFile(fn)
+        elif name.find('STR') != -1:
+            sec = SectorFile(fn)
+        elif name.find('GAME') != -1:
+            gam = GameFile(fn)
+        elif name.find('LOC') != -1:
+            loc = LocFile(fn)
+        else:
+            wx.MessageBox("Unknown KWN type.\nThe file must have LVL, STR, GAME, or LOC in his file name so that the editor can identify the type.")
+        updateChunkTree()
+
+def groundsToObj(obj,kk,base=1,prefix=''):
+    if kk != None:
+        l = []
+        if (12,18) in kk.kclasses: # CGround
+            l.append(kk.kclasses[(12,18)])
+        #if (12,19) in kk.kclasses: # CDynamicGround
+        #    l.append(kk.kclasses[(12,19)])
+        for gkc in l:
+            for chk in gkc.chunks:
+                obj.write('o %s%s_Ground_%04i\n' % (prefix,kk.desc,chk.cid))
+                bi = io.BytesIO(chk.data)
+                numa,num_tris,num_verts = readpack(bi, "IHH")
+                tris = []
+                verts = []
+                for i in range(num_tris):
+                    tris.append(readpack(bi, "HHH"))
+                for i in range(num_verts):
+                    verts.append(readpack(bi, "fff"))
+                for v in verts:
+                    obj.write('v %f %f %f\n' % v)
+                for t in tris:
+                    obj.write('f %i %i %i\n' % (t[0]+base, t[1]+base, t[2]+base))
+                base += num_verts
+    return base
+
+def colobj(event):
+    obj = open('colli.obj', mode='w')
+    base = 1
+    for kk in (lvl,sec):
+        base = groundsToObj(obj,kk,base)
+    obj.close()
+
+def geoobj(event):
+    obj = open('geom.obj', mode='w')
+    for kk in (lvl,sec):
+        if kk != None:
+            for gt in (1,2,3):
+                if (10,gt) in kk.kclasses:
+                    gkc = kk.kclasses[(10,gt)]
+                    print('-- %i --' % gt)
+                    for chk in gkc.chunks:
+                        geo = chkviewers.Geometry(io.BytesIO(chk.data))
+                        print(chk.cid, ':', geo.valid)
+                        if geo.valid:
+                            obj.write('o %s_%s_%04i\n' % (kk.desc,getclname(10,gt),chk.cid))
+                            for v in geo.verts:
+                                obj.write('v %f %f %f\n' % v)
+                            for t in geo.tris:
+                                obj.write('f %i %i %i\n' % (t[0]+base, t[1]+base, t[2]+base))
+                                for i in range(3):
+                                    assert 0 <= t[i] < geo.num_verts
+                            assert geo.num_verts == len(geo.verts)
+                            assert geo.num_tris == len(geo.tris)
+                            base += geo.num_verts
+    obj.close()
+
+def romeobj(event):
+    obj = open('rome.obj', mode='w')
+    base = 1
+    xxldir = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL006\\"
+    kfiles = [LevelFile(xxldir+"LVL06fixed.KWN")]
+    for i in range(5):
+        kfiles.append(SectorFile(xxldir+("STR06_%02i.KWN"%i)))
+    for i in range(len(kfiles)):
+        base = groundsToObj(obj,kfiles[i],base,'%02i_'%i)
+    obj.close()
+
 menu = wx.Menu()
+menu.Append(1, "Open...")
 menu.Append(0, "Save LVL")
-menu.Append(1, "XXX")
-menu.Append(2, "XXX")
-menu.Append(3, "XXX")
+menu.Append(2, "Create collision OBJ")
+menu.Append(3, "Create geometry OBJ")
+menu.Append(4, "Export collision of whole Rome")
 menubar = wx.MenuBar()
-menubar.Append(menu, "Tools")
+menubar.Append(menu, "File")
 frm.SetMenuBar(menubar)
 frm.Bind(wx.EVT_MENU, savelvl, id=0)
+frm.Bind(wx.EVT_MENU, openkf, id=1)
+frm.Bind(wx.EVT_MENU, colobj, id=2)
+frm.Bind(wx.EVT_MENU, geoobj, id=3)
+frm.Bind(wx.EVT_MENU, romeobj, id=4)
 
 class KChunk:
     def __init__(self,kcl,cid=0,data=b''):
@@ -104,6 +196,7 @@ class KClass:
         self.numtotchunks = 0
 
 class PackFile:
+    desc = "Unknown K file"
     def getChunk(self,cltype,clid,chk):
         return None
     def debug(self):
@@ -114,9 +207,11 @@ class PackFile:
             print('chunks:', [hex(len(chk)) for chk in cl.chunks])
 
 class GameFile(PackFile):
+    desc = "Game"
     pass
 
 class LocFile(PackFile):
+    desc = "Local"
     def __init__(self, fn):
         kfile = open(fn, 'rb')
         nchk, = readpack(kfile, "I")
@@ -131,6 +226,7 @@ class LocFile(PackFile):
         kfile.close()
 
 class LevelFile(PackFile):
+    desc = "Level"
     def __init__(self, fn):
         kwnfile = open(fn, 'rb')
         self.numz, = readpack(kwnfile, "I")
@@ -216,6 +312,7 @@ class LevelFile(PackFile):
         kfile.close()
 
 class SectorFile(PackFile):
+    desc = "Sector"
     def __init__(self, fn):
         kwnfile = open(fn, 'rb')
         self.kclasses = {}
@@ -248,18 +345,24 @@ class SectorFile(PackFile):
 
 xxl1dir = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\"
 
-sec = SectorFile(xxl1dir + "LVL006\\STR06_03.KWN")
-lvl = LevelFile(xxl1dir + "LVL000\\LVL00.KWN")
-loc = LocFile(xxl1dir + "00GLOC.KWN")
+#sec = SectorFile(xxl1dir + "LVL006\\STR06_03.KWN")
+#lvl = LevelFile(xxl1dir + "LVL000\\LVL00.KWN")
+#loc = LocFile(xxl1dir + "00GLOC.KWN")
 
-for f in (lvl,"Level"),(sec,"Local"):
-    fto = tree.AppendItem(troot, f[1], data=f[0])
-    for i in range(15):
-        gti = tree.AppendItem(fto, "%s" % (grpname[i]), data=None)
-        for j in [x for x in f[0].kclasses if x[0]==i ]:
-            cti = tree.AppendItem(gti, getclname(*j), data=f[0].kclasses[j])
-            for k in f[0].kclasses[j].chunks:
-                kti = tree.AppendItem(cti, str(k.cid), data=k)
+lvl = sec = loc = gam = None
+
+def updateChunkTree():
+    tree.DeleteAllItems()
+    troot = tree.AddRoot("World")
+    for f in (gam,lvl,sec,loc):
+        if f != None:
+            fto = tree.AppendItem(troot, f.desc, data=f)
+            for i in range(15):
+                gti = tree.AppendItem(fto, "%s" % (grpname[i]), data=None)
+                for j in [x for x in f.kclasses if x[0]==i ]:
+                    cti = tree.AppendItem(gti, getclname(*j), data=f.kclasses[j])
+                    for k in f.kclasses[j].chunks:
+                        kti = tree.AppendItem(cti, str(k.cid), data=k)
 
 def selchunkchanged(event):
     global cvw
@@ -270,12 +373,15 @@ def selchunkchanged(event):
         cbook.RemovePage(1)
         cvw = None
     if type(td) == KChunk:
-        #hexdump(txt, td.data)
+        hexdump(txt, td.data)
         dattype = (td.kcl.cltype,td.kcl.clid)
+        dtname = getclname(*dattype)
         if dattype == (9,2):
             cvw = chkviewers.TexDictView(td, cbook)
         elif dattype[0] == 10:
-            cvw = chkviewers.GeometryView(td, cbook)
+            cvw = chkviewers.GeometryView(td, [lvl,sec,loc], cbook)
+        elif dtname == "CGround" or dtname == "CDynamicGround":
+            cvw = chkviewers.MoreSpecificInfoView(td, cbook)
         else:
             cvw = chkviewers.UnknownView(td, cbook)
         cbook.AddPage(cvw, getclname(*dattype))
