@@ -38,14 +38,14 @@ ebox.SetFont(wx.Font(12, wx.FONTFAMILY_MODERN, wx.FONTSTYLE_NORMAL, wx.FONTWEIGH
 split1.SplitVertically(tree, ebox, 150)
 notebook.AddPage(split1, "Chunks")
 
-kver = 1 # 1:XXL1, 2:XXL2, 3:OG
+kver = 2 # 1:XXL1, 2:XXL2, 3:OG
 ktype = 2 # 1:LVL (common sector), 2:STR (sector)
 
 #fn = "C:\\Apps\\Asterix and Obelix XXL2\\LVL001\\LVL01.KWN"
 fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL000\\LVL00.KWN"
 #Øfn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\Asterix & Obelix XXL\\LVL006\\STR06_03.KWN"
-#fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\aoxxl2demo\\Astérix & Obélix XXL2 DEMO\\LVL001\\LVL01.KWN"
-#fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\aoxxl2demo\\Astérix & Obélix XXL2 DEMO\\LVL001\\STR01_05.KWN"
+fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\aoxxl2demo\\Astérix & Obélix XXL2 DEMO\\LVL001\\LVL01.KWN"
+fn = "C:\\Users\\Adrien\\Downloads\\virtualboxshare\\aoxxl2demo\\Astérix & Obélix XXL2 DEMO\\LVL001\\STR01_05.KWN"
 ktype = 2 if (os.path.basename(fn).upper().find('STR') != -1) else 1
 
 kwnfile = open(fn, "rb") 

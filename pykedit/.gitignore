@@ -1,0 +1,7 @@
+textures/
+colli.obj
+geom.mtl
+geom.obj
+rome.obj
+*.kwn
+*dbg.txt

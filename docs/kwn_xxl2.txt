@@ -29,11 +29,11 @@ quad		16	?
 numa		4	?
 
 [For each 15 class types]
-	numclasses	4	Num of classes
+	numclasses	2	Num of classes
 	[For each class]
-		num_chunks	4	Number of chunks in total (including LVL and STR)
-		num_lvl_chk	4	Number of common sector (LVL) chunks
-		?		4
+		num_chunks	2	Number of chunks in total (including LVL and STR)
+		num_lvl_chk	2	Number of common sector (LVL) chunks
+		?		2
 		?		1
 		?		1	0=?, 1=Irreplaceable, 2=Replaceable
 

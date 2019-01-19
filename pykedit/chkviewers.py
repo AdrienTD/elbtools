@@ -1,12 +1,7 @@
-import io,math,os,struct,time,wx,wx.glcanvas
+import io,math,os,struct,time,wx,wx.glcanvas,wx.dataview
 from OpenGL.GL import *
 from OpenGL.GLU import *
-
-def readpack(inputfile, fmt):
-    return struct.unpack("<" + fmt, inputfile.read(struct.calcsize("<" + fmt)))
-
-def writepack(outputfile, a, *b):
-    outputfile.write(struct.pack("<" + a, *b))
+from utils import *
 
 class Texture:
     def __init__(self):
@@ -31,7 +26,7 @@ class Texture:
                 self.pal.append(readpack(f,"BBBB"))
     def save(self, f):
         tsiz = self.pitch*self.height + len(self.pal)*4
-        f.write(self.name)
+        f.write(self.name.ljust(32,b'\0'))
         writepack(f, "III", *self.v)
         writepack(f, "III", 0x18, 12+16+tsiz, self.rwver)
         writepack(f, "III", 1, 16, self.rwver)
@@ -40,6 +35,44 @@ class Texture:
         if self.bpp <= 8:
             for pe in self.pal:
                 writepack(f, "BBBB", *pe)
+    def convertToWxImage(self):
+        d = bytearray(self.width * self.height * 3)
+        a = bytearray(self.width * self.height)
+        if self.bpp <= 8:
+            o = n = 0
+            for p in self.dat:
+                c = self.pal[p]
+                d[o:o+3] = c[0:3]
+                o += 3
+                a[n] = c[3]
+                n += 1
+        elif self.bpp == 32:
+            o = x = 0
+            for p in range(len(self.dat)//4):
+                d[o:o+3] = self.dat[x:x+3]
+                o += 3
+                lll = self.dat[x+3]
+                a[p] = lll
+                x += 4
+        img = wx.Image(self.width,self.height,d)
+        img.SetAlpha(a)
+        return img
+
+class GeometryList:
+    def __init__(self):
+        pass
+    def __init__(self, f):
+        self.load(f)
+    def load(self, f):
+        self.geos = []
+        self.u1,self.flags = readpack(f, "II")
+        if self.flags & 0x800:
+            return
+        num_geos = 1
+        if self.flags & 0x2000:
+            num_geos, = readpack(f, "I")
+        for i in range(num_geos):
+            self.geos.append(Geometry(f))
 
 class Geometry:
     class Material:
@@ -49,17 +82,16 @@ class Geometry:
     def __init__(self, f):
         self.load(f)
     def load(self, f):
+        def dbg(*args):
+            pass #print(*args)
         self.valid = False
-        self.u1,self.u2 = readpack(f, "II")
         atomt,atoms,atomv = readpack(f, "III")
-        if atomv != 0x1803FFFF:
-            f.seek(-8, os.SEEK_CUR)
-            atomt,atoms,atomv = readpack(f, "III")
-            assert atomv == 0x1803FFFF
+        dbg('aaa', atomt,atoms,atomv)
         if atomt == 0xE:
             f.seek(atoms, os.SEEK_CUR)
             atomt,atoms,atomv = readpack(f, "III")
         assert atomt == 0x14
+        geoend = f.tell() + atoms
         stt, sts, stv = readpack(f, "III")
         assert stt == 1 and sts == 16
         av = readpack(f, "4I")
@@ -71,7 +103,7 @@ class Geometry:
         self.flags,self.num_uvmaps = readpack(f, "HH")
         self.num_tris,self.num_verts, = readpack(f, "II")
         self.num_morph_targets, = readpack(f, "I")
-        print('num_morph_targets:', self.num_morph_targets)
+        dbg('num_morph_targets:', self.num_morph_targets)
         assert self.num_morph_targets == 1
         self.colors = []
         for i in range(self.num_verts):
@@ -79,7 +111,7 @@ class Geometry:
         self.texcrd = []
         for i in range(self.num_verts):
             self.texcrd.append(readpack(f, "ff"))
-        print(self.num_uvmaps)
+        dbg(self.num_uvmaps)
         f.seek(8*self.num_verts*(self.num_uvmaps-1), os.SEEK_CUR)
         self.tris = []
         for i in range(self.num_tris):
@@ -91,30 +123,29 @@ class Geometry:
         self.verts = []
         for j in range(self.num_verts):
             self.verts.append(readpack(f, "fff"))
+        self.normals = []
         if self.flags & 0x10:
-            self.normals = []
             for j in range(self.num_verts):
                 self.normals.append(readpack(f, "fff"))
-        self.normals = []
-        print('ml', hex(f.tell()))
+        dbg('ml', hex(f.tell()))
 
-##        print('num_tris:', self.num_tris)
-##        print('num_verts:', self.num_verts)
-##        print('num_morph_targets:', self.num_morph_targets)
-##        print('colors:', self.colors)
-##        print('texcrd:', self.texcrd)
-##        print('tris:', self.tris)
-##        print('sphere:', self.sphere)
-##        print('verts:', self.verts)
+##        dbg('num_tris:', self.num_tris)
+##        dbg('num_verts:', self.num_verts)
+##        dbg('num_morph_targets:', self.num_morph_targets)
+##        dbg('colors:', self.colors)
+##        dbg('texcrd:', self.texcrd)
+##        dbg('tris:', self.tris)
+##        dbg('sphere:', self.sphere)
+##        dbg('verts:', self.verts)
         
         mlt, mls, mlv = readpack(f, "III")
-        print(mlt,mls,mlv)
+        dbg(mlt,mls,mlv)
         assert mlt == 8
         stt, sts, stv = readpack(f, "III")
-        print('sts:', sts)
+        dbg('sts:', sts)
         assert stt == 1 and sts in (4,8)
         num_mats, = readpack(f, "I")
-        print(num_mats)
+        dbg(num_mats)
         if num_mats > 0:
             readpack(f, "I")
         self.materials = []
@@ -125,7 +156,7 @@ class Geometry:
             stt, sts, stv = readpack(f, "III")
             assert stt == 1 and sts == 28
             m.u1,m.color,m.u2,m.textured,m.ambient,m.specular,m.diffuse = readpack(f, "IIIIfff")
-            print('txt:', hex(f.tell()))
+            dbg('txt:', hex(f.tell()))
             if m.textured:
                 txt, txs, txv = readpack(f, "III")
                 assert txt == 6
@@ -141,14 +172,14 @@ class Geometry:
                 nat, nas, nav = readpack(f, "III")
                 assert nat == 2
                 m.maskname = f.read(nas).rstrip(b'\0')
-                print(m.name)
+                dbg(m.name)
             else:
-                m.name = ''
+                m.name = b'NoTexture'
             self.materials.append(m)
         
         #f.seek(mls, os.SEEK_CUR)
-        
-        print('yes')
+        f.seek(geoend, os.SEEK_SET)
+        dbg('yes')
         self.valid = True
 
 class UnknownView(wx.Panel):
@@ -161,28 +192,34 @@ class TexDictView(wx.Panel):
     def __init__(self, chk, *args, **kw):
         super().__init__(*args,**kw)
         self.chk = chk
-        self.SetBackgroundColour(wx.Colour(255,0,0))
+        #self.SetBackgroundColour(wx.Colour(255,0,0))
         self.split1 = split1 = wx.SplitterWindow(self, style=wx.SP_LIVE_UPDATE|wx.SP_3D)#, size=(700,500))
         self.lb = wx.ListBox(split1)
-        tp = wx.Panel(split1)
+        tp = self.tp = wx.Panel(split1)
         split1.SplitVertically(self.lb, tp, 150)
         bs = wx.BoxSizer(orient=wx.VERTICAL)
         cmds = wx.BoxSizer()
         bt = wx.Button(tp, label="Replace texture")
         bt2 = wx.Button(tp, label="Save dictionary")
         cmds.AddMany((bt,bt2))
-        self.sb = wx.StaticBitmap(tp)
-        bs.AddMany((cmds, self.sb))
+        #self.sb = wx.StaticBitmap(tp,size=wx.Size(256,256))
+        #self.sb.SetSize(wx.Size(256,256))
+        bs.Add(cmds)
+        #bs.Add(self.sb, proportion=1, flag=wx.EXPAND)
         tp.SetSizerAndFit(bs)
-        bmp = wx.Bitmap(256,256)
-        self.sb.SetBitmap(bmp)
+        #bmp = wx.Bitmap(256,256)
+        #self.sb.SetBitmap(bmp)
+
+        self.curbmp = None
         
         self.Bind(wx.EVT_SIZE, self.OnSize)
         self.lb.Bind(wx.EVT_LISTBOX, self.seltexchanged)
         bt.Bind(wx.EVT_BUTTON, self.replacetex)
         bt2.Bind(wx.EVT_BUTTON, self.savedict)
+        tp.Bind(wx.EVT_PAINT, self.OnPaint)
         
         f = io.BytesIO(chk.data)
+        #if True: fstbyte, = readpack(f, "B")
         num_tex, = readpack(f, "I")
         self.textures = []
         for i in range(num_tex):
@@ -197,25 +234,21 @@ class TexDictView(wx.Panel):
         #item = event.GetSelection()
         #tex = self.textures[item]
         self.drawtex()
-
+    
     def drawtex(self):
         tex = self.textures[self.lb.GetSelection()]
-        d = bytearray(tex.width * tex.height * 3)
-        o = 0
-        if tex.bpp <= 8:
-            for p in tex.dat:
-                c = tex.pal[p]
-                #d[o:o+3] = struct.pack("BBB", c[0],c[1],c[2])
-                d[o:o+3] = c[0:3]
-                o += 3
-        elif tex.bpp == 32:
-            x = 0
-            for p in range(len(tex.dat)//4):
-                d[o:o+3] = tex.dat[x:x+3]
-                x += 4
-                o += 3
-        img = wx.Image(tex.width,tex.height,d)
-        self.sb.SetBitmap(img.ConvertToBitmap())
+        img = tex.convertToWxImage()
+        self.curbmp = img.ConvertToBitmap()
+        self.tp.Refresh()
+        #self.sb.SetBitmap(img.ConvertToBitmap())
+        #self.sb.SetSize(wx.Size(256,256))
+        #self.sb.Refresh()
+
+    def OnPaint(self, event):
+        dc = wx.PaintDC(event.GetEventObject())
+        #dc.DrawLine(0,0,100,150)
+        if self.curbmp:
+            dc.DrawBitmap(self.curbmp, 48, 48)
 
     def replacetex(self, event):
         fn = wx.FileSelector("Replace texture with")
@@ -277,7 +310,9 @@ class GeometryView(wx.glcanvas.GLCanvas):
                 textures.append(t)
             self.texdicts.append(textures)
             
-        self.geo = Geometry(io.BytesIO(chk.data))
+        self.geolist = GeometryList(io.BytesIO(chk.data))
+        self.geoindex = 0
+        self.geo = self.geolist.geos[self.geoindex]
 
         center = [0,0,0]
         if self.geo.valid:
@@ -340,37 +375,45 @@ class GeometryView(wx.glcanvas.GLCanvas):
             self.campos = tuple(self.campos[x] - self.camstr[x] for x in range(3))
         if key == 'L':
             self.wireframe = not self.wireframe
+        if key == 'O':
+            if self.geoindex > 0:
+                self.geoindex -= 1
+                self.geo = self.geolist.geos[self.geoindex]
+        if key == 'P':
+            if self.geoindex < len(self.geolist.geos)-1:
+                self.geoindex += 1
+                self.geo = self.geolist.geos[self.geoindex]
         self.Refresh()
 
     def InitGL(self):
         glEnable(GL_TEXTURE_2D)
         glEnable(GL_ALPHA_TEST)
         glAlphaFunc(GL_GEQUAL, 0.8)
-        self.textures = []
-        for m in self.geo.materials:
-            fnd = None
-            for d in self.texdicts:
-                for t in d:
-                    if t.name == m.name:
-                        fnd = t
-            if fnd:
-                if fnd.bpp <= 8:
-                    td = bytearray(fnd.width*fnd.height*4)
-                    for i in range(fnd.width*fnd.height):
-                        td[4*i:4*i+4] = fnd.pal[fnd.dat[i]]
-                elif fnd.bpp == 32:
-                    td = fnd.dat
+        for g in self.geolist.geos:
+            g.gltextures = []
+            for m in g.materials:
+                fnd = None
+                for d in self.texdicts:
+                    for t in d:
+                        if t.name == m.name:
+                            fnd = t
+                if fnd:
+                    if fnd.bpp <= 8:
+                        td = bytearray(fnd.width*fnd.height*4)
+                        for i in range(fnd.width*fnd.height):
+                            td[4*i:4*i+4] = fnd.pal[fnd.dat[i]]
+                    elif fnd.bpp == 32:
+                        td = fnd.dat
+                    else:
+                        assert False
+                    glt = glGenTextures(1)
+                    glBindTexture(GL_TEXTURE_2D, glt)
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fnd.width, fnd.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, bytes(td))
+                    g.gltextures.append(glt)
                 else:
-                    assert False
-                glt = glGenTextures(1)
-                glBindTexture(GL_TEXTURE_2D, glt)
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fnd.width, fnd.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, bytes(td))
-                self.textures.append(glt)
-            else:
-                self.textures.append(None)
-        print(self.textures)
+                    g.gltextures.append(None)
         self.glinitialized = True
         
     def OnPaint(self, event):
@@ -384,33 +427,22 @@ class GeometryView(wx.glcanvas.GLCanvas):
             glEnable(GL_DEPTH_TEST)
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE if self.wireframe else GL_FILL)
 
-            glClearColor(1,0,0,1)
+            glClearColor(0.5,0.5,1,1)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
             glMatrixMode(GL_PROJECTION)
             glLoadIdentity()
-            #glFrustum(-0.5, 0.5, -0.5, 0.5, 1, 5)
             gluPerspective(60, winsize.width/winsize.height, 0.1, 100)
 
             glMatrixMode(GL_MODELVIEW)
             glLoadIdentity()
-            #glTranslatef(0,0,-10)
             center = [self.campos[x] + self.camdir[x] for x in range(3)]
             gluLookAt(*self.campos, *center, 0,1,0)
-            #glRotatef(time.time(),0,1,0)
-            #glRotatef((time.time() * 120) % 360,0,1,0)
 
             curtex = None
             glBegin(GL_TRIANGLES)
-##            d = 0
-##            glColor3f(1,0,0)
-##            glVertex3f(-1,-1,d)
-##            glColor3f(0,1,0)
-##            glVertex3f(-1,1,d)
-##            glColor3f(0,0,1)
-##            glVertex3f(1,0,d)
             for t in self.geo.tris:
-                ttx = self.textures[t[3]]
+                ttx = self.geo.gltextures[t[3]]
                 if ttx != curtex:
                     glEnd()
                     if ttx == None:
@@ -456,3 +488,136 @@ class MoreSpecificInfoView(wx.TextCtrl):
         txt.seek(0, os.SEEK_SET)
         self.SetValue(txt.read())
 
+class HexView(wx.TextCtrl):
+    def __init__(self, chk, *args, **kw):
+        super().__init__(style=wx.TE_MULTILINE|wx.TE_DONTWRAP,*args,**kw)
+        self.SetFont(wx.Font(12, wx.FONTFAMILY_MODERN, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        txt = io.StringIO()
+        hexdump(txt, chk.data)
+        txt.seek(0, os.SEEK_SET)
+        self.SetValue(txt.read())
+
+class StringTable:
+    def __init__(self):
+        pass
+    def __init__(self, f):
+        self.load(f)
+    def load(self, f):
+        numThings, = readpack(f, "H")
+        self.thingTable1 = []
+        self.thingTable2 = []
+        for i in range(numThings): self.thingTable1.append(readpack(f, "I")[0])
+        for i in range(numThings): self.thingTable2.append(readpack(f, "I")[0])
+        print('x', hex(f.tell()))
+        # Strings with ID
+        self.identifiedStrings = []
+        totchars, = readpack(f, "I")
+        charsread = 0
+        while charsread < totchars:
+            print('z', hex(f.tell()))
+            sid,slen = readpack(f, "II")
+            self.identifiedStrings.append((sid,f.read(2*slen).decode(encoding='utf_16_le')))
+            charsread += slen
+        print('y', hex(f.tell()))
+        # Strings without ID
+        self.anonymousStrings = []
+        totchars, = readpack(f, "I")
+        charsread = 0
+        while charsread < totchars:
+            slen, = readpack(f, "I")
+            self.anonymousStrings.append(f.read(2*slen).decode(encoding='utf_16_le'))
+            charsread += slen
+    def save(self, f):
+        numThings = len(self.thingTable1)
+        writepack(f, "H", numThings)
+        for i in range(numThings): writepack(f, "I", self.thingTable1[i])
+        for i in range(numThings): writepack(f, "I", self.thingTable2[i])
+        # Strings with ID
+        totchars = 0
+        enc = []
+        for s in self.identifiedStrings:
+            e = s[1].encode(encoding='utf_16_le')
+            enc.append((s[0],e))
+            totchars += len(e)//2
+        writepack(f, "I", totchars)
+        for e in enc:
+            writepack(f, "II", e[0], len(e[1])//2)
+            f.write(e[1])
+        # Strings without ID
+        totchars = 0
+        enc = []
+        for s in self.anonymousStrings:
+            e = s.encode(encoding='utf_16_le')
+            enc.append(e)
+            totchars += len(e)//2
+        writepack(f, "I", totchars)
+        for e in enc:
+            writepack(f, "I", len(e)//2)
+            f.write(e)
+
+class LocTextViewer(wx.dataview.DataViewListCtrl): #(wx.Panel):
+    zeroString = "[0-sized string, DO NOT CHANGE!]"
+    def __init__(self, chk, *args, **kw):
+        super().__init__(*args,**kw)
+        #self.dvlc = wx.dataview.DataViewListCtrl(self)
+        self.dvlc = self
+        self.dvlc.AppendTextColumn("ID")
+        self.dvlc.AppendTextColumn("Text", wx.dataview.DATAVIEW_CELL_EDITABLE)
+        self.dvlc.AppendTextColumn("Original text")
+        #self.dvlc.AppendItem((1,2,3))
+        self.frdata = wx.FindReplaceData()
+        self.Bind(wx.dataview.EVT_DATAVIEW_ITEM_CONTEXT_MENU, self.OnContextMenu)
+        self.Bind(wx.EVT_MENU, self.FindText, id=1000)
+
+        self.strtab = StringTable(io.BytesIO(chk.data))
+        #print(self.strtab.identifiedStrings)
+        for s in self.strtab.identifiedStrings:
+            t = s[1] if len(s[1]) else self.zeroString
+            self.dvlc.AppendItem((s[0],t,t))
+        for s in self.strtab.anonymousStrings:
+            t = s if len(s) else self.zeroString
+            self.dvlc.AppendItem(('/',t,t))
+            
+    def update(self,chk):
+        self.strtab.identifiedStrings = []
+        self.strtab.anonymousStrings = []
+        for i in range(self.dvlc.GetItemCount()):
+            varid = self.dvlc.GetTextValue(i,0)
+            vartxt = self.dvlc.GetTextValue(i,1)
+            if vartxt == self.zeroString:
+                s = ''
+            else:
+                s = vartxt + '\0'
+            if varid == '/':
+                self.strtab.anonymousStrings.append(s)
+            else:
+                self.strtab.identifiedStrings.append((int(varid),s))
+
+        bo = io.BytesIO()
+        self.strtab.save(bo)
+        bo.seek(0, os.SEEK_SET)
+        chk.data = bo.read()
+
+    def OnContextMenu(self, ev):
+        m = wx.Menu()
+        m.Append(1000, "Find...")
+        self.PopupMenu(m)
+
+    def FindText(self, ev):
+        self.frdialog = wx.FindReplaceDialog(self, self.frdata)
+        self.frdialog.Bind(wx.EVT_FIND, self.OnFind)
+        self.frdialog.Bind(wx.EVT_FIND_NEXT, self.OnFind)
+        self.frdialog.Show()
+
+    def OnFind(self, ev):
+        r = self.GetSelectedRow()
+        if r == wx.NOT_FOUND:
+            r = 0
+        else:
+            r += 1
+        while r < self.GetItemCount():
+            if self.frdata.GetFindString() in self.GetValue(r,1):
+                self.SelectRow(r)
+                self.EnsureVisible(self.RowToItem(r))
+                break
+            r += 1
