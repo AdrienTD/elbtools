@@ -2,7 +2,41 @@ import io,math,os,struct,time,wx,wx.glcanvas
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from utils import *
+from kfiles import *
 #import numpy as np
+
+#class ChunkRef:
+#    def __init__(self, kflist):
+#        self.kflist = kflist
+#        self.isset = False
+#    def __init__(self, kflist, cltype, clid, chkid):
+#        self.kflist = kflist
+#        self.set(cltype, clid, chkid)
+#    def set(self, cltype, clid, chkid):
+#        self.cltype = cltype
+#        self.clid = clid
+#        self.chkid = chkid
+#        self.isset = True
+#    def unset(self):
+#        self.isset = False
+#    def get(self):
+#        for (self.cltype) in self.kflist:
+#    def valid(self):
+#        if not self.isset:
+#            return False
+
+def getChunkFromInt(kflist: list, a: int) -> KChunk:
+    cltype,clid,chkid = a & 63, (a >> 6) & 2047, a >> 17
+    #print('gcfi:', cltype,clid,chkid)
+    for kf in kflist:
+        if kf == None: continue
+        cti = (cltype, clid)
+        if cti not in kf.kclasses: continue
+        for chk in kf.kclasses[cti].chunks:
+            if chk.cid == chkid:
+                #print('Found')
+                return chk
+    return None
 
 class Ground:
     def __init__(self):
@@ -21,12 +55,15 @@ class Ground:
 class Node:
     def __init__(self):
         pass
-    def __init__(self, f):
-        self.load(f)
-    def load(self, f):
+    def __init__(self, f, kflist):
+        self.load(f, kflist)
+    def load(self, f, kflist):
         self.matrix = list(readpack(f, "16f"))
         self.matrix[3] = self.matrix[7] = self.matrix[11] = 0
         self.matrix[15] = 1
+        self.parent = getChunkFromInt(kflist, *readpack(f,"I"))
+        if self.parent != None:
+            assert self.parent.kcl.cltype == 11
 
 class SceneViewer(wx.glcanvas.GLCanvas):
     def __init__(self, kfiles, *args, **kw):
@@ -59,14 +96,15 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             for chk in kk.kclasses[(12,18)].chunks:
                 self.grounds.append(Ground(io.BytesIO(chk.data)))
 
-        self.nodes = []
-        ntl = [(11,3),(11,21),(11,12),(11,22)]
+        self.nodes = {}
+        #ntl = [(11,3),(11,21),(11,12),(11,22)]
         for kk in kfiles:
             if kk == None: continue
+            ntl = [x for x in kk.kclasses if x[0] == 11]
             for cl in ntl:
                 if not (cl in kk.kclasses): continue
                 for chk in kk.kclasses[cl].chunks:
-                    self.nodes.append(Node(io.BytesIO(chk.data)))
+                    self.nodes[chk] = Node(io.BytesIO(chk.data),kfiles)
 
     def OnEraseBackground(self, event):
         pass
@@ -124,7 +162,7 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             glEnable(GL_DEPTH_TEST)
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE if self.wireframe else GL_FILL)
 
-            glClearColor(1,0,0,1)
+            glClearColor(0.5,0.5,1,1)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
             glMatrixMode(GL_PROJECTION)
@@ -172,7 +210,11 @@ class SceneViewer(wx.glcanvas.GLCanvas):
 
             for n in self.nodes:
                 glPushMatrix()
-                glMultMatrixf(n.matrix)
+                glMultMatrixf(self.nodes[n].matrix)
+                par = self.nodes[n].parent
+                while par:
+                    glMultMatrixf(self.nodes[par].matrix)
+                    par = self.nodes[par].parent
                 drawcube()
                 glPopMatrix()
 
