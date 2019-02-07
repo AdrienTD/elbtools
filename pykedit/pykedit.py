@@ -177,7 +177,7 @@ def exporttextures(event):
 
 def showscene(ev):
     sceneframe = wx.Frame(None, title="Scene Viewer", size=(960,600))
-    sceneviewer.SceneViewer((lvl,sec), sceneframe)
+    sceneviewer.ScenePanel((lvl,sec), sceneframe)
     sceneframe.Show()
 
 def setkver1(ev): changekver(1); kfiles.hasdrm = True
@@ -268,7 +268,8 @@ def updateChunkTree():
                         for k in f.kclasses[j].chunks:
                             name = '?'
                             if lvl != None:
-                                name = lvl.namedicts[f.strnum].get((i,f.kclasses[j].clid,k.cid),'?')
+                                if lvl.namedicts:
+                                    name = lvl.namedicts[f.strnum].get((i,f.kclasses[j].clid,k.cid),'?')
                             tree.AppendItem(cti, str(k.cid) + ': ' + name, data=k)
 
 def changeviewer():

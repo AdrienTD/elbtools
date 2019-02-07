@@ -363,12 +363,13 @@ class MoreSpecificInfoView(wx.TextCtrl):
                 for i in range(4):
                     txt.write('%f %f %f\n' % (mtx[4*i+0], mtx[4*i+1], mtx[4*i+2]))
                 txt.write('\nParent: %s\n' % objrefstr(parent))
-                txt.write('\nUnknown 1: ' + str(*readpack(bi, 'I')))
+                txt.write('\nUnknown 1: ' + str(*readpack(bi, 'I' if chk.ver >= 2 else 'H')))
                 txt.write('\nUnknown 2: ' + str(*readpack(bi, 'B')))
                 txt.write('\nNext Object: ' + objrefstr(readobjref(bi)))
                 txt.write('\nSubordinate Object: ' + objrefstr(readobjref(bi)))
                 try:
                     txt.write('\nSome Object: ' + objrefstr(readobjref(bi)))
+                    txt.write('\nAnother Object: ' + objrefstr(readobjref(bi)))
                 except:
                     txt.write('\nThat\'s all.')
         elif type(chk) == KClass:

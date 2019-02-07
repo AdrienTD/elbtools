@@ -47,14 +47,15 @@ class KChunk:
         self.data = data
         self.ver = kver
 class KClass:
-    def __init__(self,cltype,clid,sid=0,rep=0):
+    def __init__(self,cltype,clid,sid=0,rep=0,kf=None):
         self.cltype = cltype
         self.clid = clid
         self.startid = sid
         self.rep = rep
+        self.kfile = kf
+        
         self.chunks = []
         self.numtotchunks = 0
-
         self.shadow = []
     def __str__(self):
         #return str((self.cltype, self.clid, self.startid, self.rep, len(self.chunks), self.numtotchunks))
@@ -90,7 +91,7 @@ class GameFile(PackFile):
         for i in range(nchk):
             cltype,clid,nxtchk = readpack(kfile, "III")
             assert (cltype,clid) not in self.kclasses
-            kcls = KClass(cltype,clid)
+            kcls = KClass(cltype,clid,kf=self)
             kchk = KChunk(kcls,0,ver=ver)
             kchk.data = kfile.read(nxtchk - kfile.tell())
             kcls.chunks.append(kchk)
@@ -107,7 +108,7 @@ class LocFile(PackFile):
         for i in range(nchk):
             cltype,clid,nxtchk = readpack(kfile, "III")
             assert (cltype,clid) not in self.kclasses
-            kcls = KClass(cltype,clid)
+            kcls = KClass(cltype,clid,kf=self)
             kchk = KChunk(kcls,0,ver=ver)
             kchk.data = kfile.read(nxtchk - kfile.tell())
             kcls.chunks.append(kchk)
@@ -151,7 +152,7 @@ class LevelFile(PackFile):
             print('#', numb)
             grplen.append(numb)
             for j in range(numb):
-                kcl = KClass(i,j)
+                kcl = KClass(i,j,kf=self)
                 if self.ver >= 2:
                     h1,h2,t1,t2,b1 = dreadpack(kwnfile, "HHHBB")
                     kcl.ques1 = []
@@ -176,7 +177,7 @@ class LevelFile(PackFile):
                 self.kclasses[(i,j)] = kcl
         dbg('a', hex(kwnfile.tell()))
         if self.ver >= 3: kwnfile.seek(8, os.SEEK_CUR)
-        if self.ver == 2: kwnfile.seek(16 if hasdrm else 8, os.SEEK_CUR)
+        elif self.ver == 2: kwnfile.seek(16 if hasdrm else 8, os.SEEK_CUR)
         else: kwnfile.seek(12 if hasdrm else 8, os.SEEK_CUR)
         dbg('a', hex(kwnfile.tell()))
         for i in range(15):
@@ -231,11 +232,11 @@ class LevelFile(PackFile):
             kwnfile.seek(nextchkoff, os.SEEK_SET)
             
         # Read the names of the objects if they are present.
+        self.namedicts = []
         if ver >= 2:
             nthead = kwnfile.read(8)
             if len(nthead) == 8:
                 ntoff,numstr = struct.unpack('II', nthead)
-                self.namedicts = []
                 def readobjref(kwn):
                     i, = readpack(kwn, 'I')
                     if i == 0xFFFFFFFD:
@@ -359,7 +360,7 @@ class SectorFile(PackFile):
             for j in range(nsubchk):
                 nextsubchkoff, = readpack(kwnfile, "I")
                 startid, = readpack(kwnfile, "H")
-                kc = KClass(d,idlist[d][j][0],startid)
+                kc = KClass(d,idlist[d][j][0],startid,kf=self)
                 subsub = kwnfile.tell()
                 cid = startid
                 while subsub < nextsubchkoff:

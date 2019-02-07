@@ -81,15 +81,29 @@ class Texture:
         img.SetAlpha(a)
         return img
 
+def getChunkFromInt(kflist: list, a: int):
+    cltype,clid,chkid = a & 63, (a >> 6) & 2047, a >> 17
+    #print('gcfi:', cltype,clid,chkid)
+    for kf in kflist:
+        if kf == None: continue
+        cti = (cltype, clid)
+        if cti not in kf.kclasses: continue
+        for chk in kf.kclasses[cti].chunks:
+            if chk.cid == chkid:
+                #print('Found')
+                return chk
+    return None
+
 class GeometryList:
     def __init__(self):
         pass
-    def __init__(self, f, ver=1):
-        self.load(f, ver)
-    def load(self, f, ver):
+    def __init__(self, f, ver=1, kfiles=()):
+        self.load(f, ver, kfiles)
+    def load(self, f, ver, kfiles):
         self.geos = []
         if ver <= 1:
             self.u1,self.flags = readpack(f, "II")
+            self.nextgeo = getChunkFromInt(kfiles, self.u1)
             if self.flags & 0x800:
                 return
             num_geos = 1
@@ -98,10 +112,16 @@ class GeometryList:
             for i in range(num_geos):
                 self.geos.append(Geometry(f))
         elif ver >= 2:
-            f.seek(28 if (ver >= 3) else 24, os.SEEK_CUR)
+            f.seek(12, os.SEEK_CUR)
+            self.nextgeo = getChunkFromInt(kfiles, *readpack(f, 'I'))
+            f.seek(12 if (ver >= 3) else 8, os.SEEK_CUR)
             hasgeo, = readpack(f, "B")
             if hasgeo:
                 self.geos.append(Geometry(f))
+            else:
+                anotherchk = getChunkFromInt(kfiles, *readpack(f, 'I'))
+                anothergl = GeometryList(io.BytesIO(anotherchk.data), ver, kfiles)
+                self.geos = anothergl.geos
 
 class Geometry:
     class Material:
