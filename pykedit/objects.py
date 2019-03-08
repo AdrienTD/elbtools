@@ -232,6 +232,42 @@ class Geometry:
         dbg('yes')
         self.valid = True
 
+    def exportToOBJ(self, obj, base=1, normbase=1):
+        for v in self.verts:
+            obj.write('v %f %f %f\n' % v)
+        for u in self.texcrd:
+            obj.write('vt %f %f\n' % (u[0], 1-u[1]))
+        for n in self.normals:
+            obj.write('vn %f %f %f\n' % n)
+        curtex = b'NoTexture'
+        for t in self.tris:
+            tex = self.materials[t[3]].name
+            if tex != curtex:
+                obj.write('usemtl %s\n' % tex.decode(encoding='latin_1'))
+                curtex = tex
+            obj.write('f')
+            for i in range(3):
+                if self.normals:
+                    obj.write(' %i/%i/%i' % (t[i]+base, t[i]+base, t[i]+normbase))
+                else:
+                    obj.write(' %i/%i' % (t[i]+base, t[i]+base))
+                assert 0 <= t[i] < self.num_verts
+            obj.write('\n')
+        base += self.num_verts
+        if self.normals:
+            normbase += self.num_verts
+        return base,normbase
+
+    def exportToDAE(self):
+        pass
+##        from lxml.builder import E
+##        from lxml import etree
+##        epverts = []
+##        for v in self.verts:
+##            epverts.extend(v)
+##        xf = E.float_array(' '.join(epverts))
+##        print(etree.tostring(xf))
+
 class StringTable:
     def __init__(self):
         pass

@@ -7,6 +7,13 @@ def fixoffsets(f, l, po=0):
         writepack(f, "I", l[i+1])
     f.seek(0, os.SEEK_END)
 
+def readobjref(kwn):
+    i, = readpack(kwn, 'I')
+    if i == 0xFFFFFFFD:
+        return kwn.read(16)
+    else:
+        return (i & 63, (i>>6) & 2047, i >> 17)
+
 def changekver(newkver):
     global kver, grpord, clname, grpnumcl
     kver = newkver
@@ -29,10 +36,10 @@ def changekver(newkver):
     elif kver == 3: grpnumcl = [6, 28, 268, 1, 102, 1, 364, 16, 37, 5, 4, 37, 517, 151, 6]
 
 changekver(1)
-hasdrm = True
+khasdrm = True
 grpname = ['Managers', 'Services', 'Hooks', 'Hook Lives', 'Groups', 'Group Lives',
           'Components', 'Cameras', 'Cinematic blocs', 'Dictionaries',
-          'Geometry', 'Nodes', '3D things', '2D things', 'Errors']
+          'Geometry', 'Nodes', 'Game things', 'Graphics things', 'Errors']
 
 def getclname(t, i):
     if (t,i) in clname:
@@ -46,6 +53,7 @@ class KChunk:
         self.cid = cid
         self.data = data
         self.ver = kver
+        self.guid = None
 class KClass:
     def __init__(self,cltype,clid,sid=0,rep=0,kf=None):
         self.cltype = cltype
@@ -86,16 +94,53 @@ class GameFile(PackFile):
     def __init__(self, fn, ver=kver):
         super().__init__(fn, ver)
         kfile = open(fn, 'rb')
-        nchk,unk = readpack(kfile, "II")
         self.kclasses = {}
-        for i in range(nchk):
-            cltype,clid,nxtchk = readpack(kfile, "III")
-            assert (cltype,clid) not in self.kclasses
-            kcls = KClass(cltype,clid,kf=self)
-            kchk = KChunk(kcls,0,ver=ver)
-            kchk.data = kfile.read(nxtchk - kfile.tell())
-            kcls.chunks.append(kchk)
-            self.kclasses[(cltype,clid)] = kcls
+        self.namedicts = []
+        if kver <= 1:
+            nchk,unk = readpack(kfile, "II")
+            for i in range(nchk):
+                cltype,clid,nxtchk = readpack(kfile, "III")
+                assert (cltype,clid) not in self.kclasses
+                kcls = KClass(cltype,clid,kf=self)
+                kchk = KChunk(kcls,0,ver=ver)
+                kchk.data = kfile.read(nxtchk - kfile.tell())
+                kcls.chunks.append(kchk)
+                self.kclasses[(cltype,clid)] = kcls
+        else:
+            nchk, = readpack(kfile, "I")
+            quad1 = readque(kfile)
+            num2, = readpack(kfile, "I")
+            cp = 0
+            kcllist = []
+            while cp < nchk:
+                clword,numinst,hasguid = readpack(kfile, "IIB")
+                cltype,clid = clword & 63, clword >> 6
+                kcls = KClass(cltype,clid,kf=self)
+                for i in range(numinst):
+                    kchk = KChunk(kcls,i,ver=ver)
+                    if hasguid:
+                        kchk.guid = readque(kfile)
+                    kcls.chunks.append(kchk)
+                self.kclasses[(cltype,clid)] = kcls
+                kcllist.append(kcls)
+                cp += numinst
+            for kcls in kcllist:
+                for chk in kcls.chunks:
+                    nextchk, = readpack(kfile, 'I')
+                    chk.data = kfile.read(nextchk - kfile.tell())
+            numobj, = readpack(kfile, 'I')
+            nd = {}
+            self.namedicts.append(nd)
+            for o in range(numobj):
+                objref = readobjref(kfile)
+                ns, = readpack(kfile, 'H')
+                name = kfile.read(ns).decode(encoding='latin_1')
+                h3,h4 = readpack(kfile, '2H')
+                assert h4 == 0
+                kfile.seek(28, os.SEEK_CUR)
+                if objref in nd:
+                    print('Duplicate objref:', objref)
+                nd[objref] = name
         kfile.close()
 
 class LocFile(PackFile):
@@ -130,7 +175,7 @@ class LocFile(PackFile):
 
 class LevelFile(PackFile):
     desc = "Level"
-    def __init__(self, fn, ver=kver):
+    def __init__(self, fn, ver=kver, hasdrm=khasdrm):
         super().__init__(fn, ver)
         #logfile = open('lvl_load_dbg.txt', 'w')
         def dbg(*args):
@@ -237,12 +282,6 @@ class LevelFile(PackFile):
             nthead = kwnfile.read(8)
             if len(nthead) == 8:
                 ntoff,numstr = struct.unpack('II', nthead)
-                def readobjref(kwn):
-                    i, = readpack(kwn, 'I')
-                    if i == 0xFFFFFFFD:
-                        return kwn.read(16)
-                    else:
-                        return (i & 63, (i>>6) & 2047, i >> 17)
                 for s in range(numstr):
                     numobj, = readpack(kwnfile, 'I')
                     nd = {}

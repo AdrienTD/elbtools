@@ -246,6 +246,7 @@ class SceneViewer(wx.glcanvas.GLCanvas):
         self.Bind(wx.EVT_LEFT_UP, self.OnMotion)
         self.Bind(wx.EVT_MOUSEWHEEL, self.OnWheel)
         self.Bind(wx.EVT_CHAR, self.OnChar)
+        self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
 
         self.campos = (0,0,0)
         self.camdir = (0,0,-1)
@@ -287,11 +288,11 @@ class SceneViewer(wx.glcanvas.GLCanvas):
                         if geo.materials:
                             tex = geo.materials[0].name
                         self.geos[chk] = (glgeo, geolist.nextgeo, tex)
-                        print('Managed to load geometry 10,%i,%i' % (r,chk.cid))
+                        #print('Managed to load geometry 10,%i,%i' % (r,chk.cid))
                     except Exception as e:
                         print('Could not load geometry 10,%i,%i: %s' % (r,chk.cid,e))
-        for g in self.geos.values():
-            print(g[0], g[1])
+##        for g in self.geos.values():
+##            print(g[0], g[1])
         
         self.listofgeo = list(self.geos.values())
         self.geoprev = 0
@@ -313,7 +314,7 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             self.dragstart_m = event.GetPosition()
             self.dragstart_y = self.camori_y
             self.dragstart_x = self.camori_x
-            print(self.dragstart_m)
+            #print(self.dragstart_m)
         elif event.LeftUp():
             self.dragstart_m = None
             self.dragstart_y = self.dragstart_x = None
@@ -334,11 +335,11 @@ class SceneViewer(wx.glcanvas.GLCanvas):
         self.Refresh()
     def OnChar(self, event):
         key = chr(event.GetKeyCode()).upper()
-        if key == 'Z':
+        if key == 'Z' or key == 'W':
             self.campos = tuple(self.campos[x] + self.camdir[x] for x in range(3))
         if key == 'S':
             self.campos = tuple(self.campos[x] - self.camdir[x] for x in range(3))
-        if key == 'Q':
+        if key == 'Q' or key == 'A':
             self.campos = tuple(self.campos[x] + self.camstr[x] for x in range(3))
         if key == 'D':
             self.campos = tuple(self.campos[x] - self.camstr[x] for x in range(3))
@@ -376,7 +377,7 @@ class SceneViewer(wx.glcanvas.GLCanvas):
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, t.width, t.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, bytes(td))
                 self.gltex[t.name] = glt
-        print(self.gltex)
+        #print(self.gltex)
 
         glEnable(GL_TEXTURE_2D)
         glEnable(GL_ALPHA_TEST)
@@ -399,23 +400,12 @@ class SceneViewer(wx.glcanvas.GLCanvas):
 
             glMatrixMode(GL_PROJECTION)
             glLoadIdentity()
-            gluPerspective(60, winsize.width/winsize.height, 0.1, 100)
+            gluPerspective(60, winsize.width/winsize.height, 0.1, 1000)
 
             glMatrixMode(GL_MODELVIEW)
             glLoadIdentity()
             center = [self.campos[x] + self.camdir[x] for x in range(3)]
             gluLookAt(*self.campos, *center, 0,1,0)
-
-            cubecolors = [(1,0,1),(0,1,0),(0,0,1),(1,1,1)]
-            def drawcube():
-                glBegin(GL_TRIANGLE_STRIP)
-                for i in (0,1,3,2,0):
-                    glColor3f(*cubecolors[i])
-                    x = (i & 1) - 0.5
-                    z = ((i >> 1) & 1) - 0.5
-                    glVertex3f(x, 0.5, z)
-                    glVertex3f(x, -0.5, z)
-                glEnd()
 
             glCullFace(GL_BACK)
             glBindTexture(GL_TEXTURE_2D, 0)
@@ -452,3 +442,8 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             glDisableClientState(GL_COLOR_ARRAY)
 
             self.SwapBuffers()
+
+    def OnLeftDown(self, event):
+        self.SetFocus()
+        event.Skip()
+

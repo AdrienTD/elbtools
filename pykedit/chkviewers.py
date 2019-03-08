@@ -1,18 +1,25 @@
-import io,math,os,struct,time,wx,wx.glcanvas,wx.dataview
+import io,math,os,struct,time
+import wx,wx.glcanvas,wx.dataview #,wx.html
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from utils import *
 from objects import *
 from kfiles import *
+import kfiles
 
 class UnknownView(wx.Panel):
     def __init__(self, chk, *args, **kw):
         super(UnknownView,self).__init__(*args,**kw)
-        wx.StaticText(self, label=str(chk))
+        wx.StaticText(self, label=str(chk)+
+            "\nGUID: "+(''.join(('%X' % i for i in chk.guid)) if chk.guid else 'None')+
+            "\nSize: " + str(len(chk.data)) +
+            "\nNothing to see right now!\nWhat you can do however is toggle the 'Hex' button\nin the bottom to see the binary content.")
 
 class TexDictView(wx.Panel):
             
     def __init__(self, chk, *args, **kw):
+        self.texdic = TextureDictionary(io.BytesIO(chk.data),ver=chk.ver,lv=(chk.kcl.cltype==13))
+        
         super().__init__(*args,**kw)
         self.chk = chk
         #self.SetBackgroundColour(wx.Colour(255,0,0))
@@ -43,7 +50,6 @@ class TexDictView(wx.Panel):
         bt2.Bind(wx.EVT_BUTTON, self.savedict)
         tp.Bind(wx.EVT_PAINT, self.OnPaint)
         
-        self.texdic = TextureDictionary(io.BytesIO(chk.data),ver=chk.ver,lv=(chk.kcl.cltype==13))
         self.textures = self.texdic.textures
         for t in self.textures:
             self.lb.Append(t.name.decode(encoding='latin_1'))
@@ -82,6 +88,7 @@ class TexDictView(wx.Panel):
         if hasalp:
             newalp = newimg.GetAlpha()
         tex = self.textures[self.lb.GetSelection()]
+        self.modified = True
         tex.width = newimg.GetWidth()
         tex.height = newimg.GetHeight()
         tex.bpp = 32
@@ -101,6 +108,7 @@ class TexDictView(wx.Panel):
         self.texdic.save(bo, chk.ver)
         bo.seek(0, os.SEEK_SET)
         chk.data = bo.read()
+        self.modified = False
 
     def savedict(self, event):
         self.update(self.chk)
@@ -108,19 +116,8 @@ class TexDictView(wx.Panel):
 class GeometryView(wx.glcanvas.GLCanvas):
             
     def __init__(self, chk, files, *args, **kw):
-        super().__init__(*args,**kw)
-        self.context = wx.glcanvas.GLContext(self)
-        self.glinitialized = False
         self.valid = False
-        self.Bind(wx.EVT_ERASE_BACKGROUND, self.OnEraseBackground)
-        self.Bind(wx.EVT_SIZE, self.OnSize)
-        self.Bind(wx.EVT_PAINT, self.OnPaint)
-        self.Bind(wx.EVT_MOTION, self.OnMotion)
-        self.Bind(wx.EVT_LEFT_DOWN, self.OnMotion)
-        self.Bind(wx.EVT_LEFT_UP, self.OnMotion)
-        self.Bind(wx.EVT_MOUSEWHEEL, self.OnWheel)
-        self.Bind(wx.EVT_CHAR, self.OnChar)
-
+        
         self.texdicts = []
         for kk in files:
             if kk == None: continue
@@ -134,6 +131,19 @@ class GeometryView(wx.glcanvas.GLCanvas):
         if self.geolist.geos:
             self.geo = self.geolist.geos[self.geoindex]
             self.valid = self.geo.valid
+
+        super().__init__(*args,**kw)
+        self.context = wx.glcanvas.GLContext(self)
+        self.glinitialized = False
+        self.Bind(wx.EVT_ERASE_BACKGROUND, self.OnEraseBackground)
+        self.Bind(wx.EVT_SIZE, self.OnSize)
+        self.Bind(wx.EVT_PAINT, self.OnPaint)
+        self.Bind(wx.EVT_MOTION, self.OnMotion)
+        self.Bind(wx.EVT_LEFT_DOWN, self.OnMotion)
+        self.Bind(wx.EVT_LEFT_UP, self.OnMotion)
+        self.Bind(wx.EVT_MOUSEWHEEL, self.OnWheel)
+        self.Bind(wx.EVT_CHAR, self.OnChar)
+        self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
 
         center = [0,0,0]
         if self.valid:
@@ -186,11 +196,11 @@ class GeometryView(wx.glcanvas.GLCanvas):
         self.Refresh()
     def OnChar(self, event):
         key = chr(event.GetKeyCode()).upper()
-        if key == 'Z':
+        if key == 'Z' or key == 'W':
             self.campos = tuple(self.campos[x] + self.camdir[x] for x in range(3))
         if key == 'S':
             self.campos = tuple(self.campos[x] - self.camdir[x] for x in range(3))
-        if key == 'Q':
+        if key == 'Q' or key == 'A':
             self.campos = tuple(self.campos[x] + self.camstr[x] for x in range(3))
         if key == 'D':
             self.campos = tuple(self.campos[x] - self.camstr[x] for x in range(3))
@@ -205,6 +215,9 @@ class GeometryView(wx.glcanvas.GLCanvas):
                 self.geoindex += 1
                 self.geo = self.geolist.geos[self.geoindex]
         self.Refresh()
+    def OnLeftDown(self, event):
+        self.SetFocus()
+        event.Skip()
 
     def InitGL(self):
         glEnable(GL_TEXTURE_2D)
@@ -288,7 +301,7 @@ class GeometryView(wx.glcanvas.GLCanvas):
 
 class MoreSpecificInfoView(wx.TextCtrl):
     def __init__(self, chk, *args, **kw):
-        super().__init__(style=wx.TE_MULTILINE|wx.TE_DONTWRAP,*args,**kw)
+        super().__init__(style=wx.TE_MULTILINE|wx.TE_DONTWRAP|wx.TE_READONLY,*args,**kw)
         txt = io.StringIO()
         if type(chk) == KChunk:
             dattype = (chk.kcl.cltype,chk.kcl.clid)
@@ -380,7 +393,7 @@ class MoreSpecificInfoView(wx.TextCtrl):
 
 class HexView(wx.TextCtrl):
     def __init__(self, chk, *args, **kw):
-        super().__init__(style=wx.TE_MULTILINE|wx.TE_DONTWRAP,*args,**kw)
+        super().__init__(style=wx.TE_MULTILINE|wx.TE_DONTWRAP|wx.TE_READONLY,*args,**kw)
         self.SetFont(wx.Font(12, wx.FONTFAMILY_MODERN, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         txt = io.StringIO()
         if type(chk) == KChunk:
@@ -393,6 +406,8 @@ class HexView(wx.TextCtrl):
 class LocTextViewer(wx.dataview.DataViewListCtrl): #(wx.Panel):
     zeroString = "[0-sized string, DO NOT CHANGE!]"
     def __init__(self, chk, *args, **kw):
+        self.strtab = StringTable(io.BytesIO(chk.data), chk.ver)
+
         super().__init__(*args,**kw)
         #self.dvlc = wx.dataview.DataViewListCtrl(self)
         self.dvlc = self
@@ -402,9 +417,9 @@ class LocTextViewer(wx.dataview.DataViewListCtrl): #(wx.Panel):
         #self.dvlc.AppendItem((1,2,3))
         self.frdata = wx.FindReplaceData()
         self.Bind(wx.dataview.EVT_DATAVIEW_ITEM_CONTEXT_MENU, self.OnContextMenu)
+        self.Bind(wx.dataview.EVT_DATAVIEW_ITEM_VALUE_CHANGED, self.OnValueChanged)
         self.Bind(wx.EVT_MENU, self.FindText, id=1000)
 
-        self.strtab = StringTable(io.BytesIO(chk.data), chk.ver)
         #print(self.strtab.identifiedStrings)
         for s in self.strtab.identifiedStrings:
             t = s[1] if len(s[1]) else self.zeroString
@@ -432,6 +447,7 @@ class LocTextViewer(wx.dataview.DataViewListCtrl): #(wx.Panel):
         self.strtab.save(bo, chk.ver)
         bo.seek(0, os.SEEK_SET)
         chk.data = bo.read()
+        self.modified = False
 
     def OnContextMenu(self, ev):
         m = wx.Menu()
@@ -456,3 +472,35 @@ class LocTextViewer(wx.dataview.DataViewListCtrl): #(wx.Panel):
                 self.EnsureVisible(self.RowToItem(r))
                 break
             r += 1
+
+    def OnValueChanged(self, ev):
+        self.modified = True
+
+##class HtmlHomeViewer(wx.html.HtmlWindow):
+##    def __init__(self, *args, **kw):
+##        super().__init__(*args,**kw)
+##        self.SetPage("Hello <b>guys</b>!"
+##                     "<ol>"
+##                     "<li>Select the version of the in game in the <b>Version</b> menu.</li>"
+##                     "<li>Open a KWN file by clicking <b>File > Open</b> or by <b>drag-dropping</b> the file here.</li>"
+##                     "</ol>")
+
+class HomeViewer(wx.Panel):
+    def __init__(self, versetters, *args, **kw):
+        super().__init__(*args,**kw)
+        bs = wx.BoxSizer(wx.VERTICAL)
+        s1=wx.StaticText(self, label="Welcome to the XXL Editor!")
+        s1.SetFont(wx.Font(12, wx.FONTFAMILY_DECORATIVE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        s2=wx.StaticText(self, label="First, select the game you want to mod/explore:")
+        self.versel = wx.RadioBox(self, choices=['Asterix XXL 1', 'Asterix XXL 2', 'Asterix Olympic Games']) #, label="Select the game you want to mod/explore:")
+        self.versel.SetSelection(kfiles.kver-1)
+        bs.AddMany((s1,s2,self.versel))
+        bs.Add(wx.StaticText(self, label="Then open the file by drag-dropping a KWN file in this window."))
+        bs.Add(wx.StaticText(self, label="For more help, click Help > Readme."))
+        self.SetSizer(bs)
+        self.versel.Bind(wx.EVT_RADIOBOX, self.OnRadioBox)
+        self.versetters = versetters
+
+    def OnRadioBox(self, evt):
+        self.versetters[self.versel.GetSelection()](None)
+        
