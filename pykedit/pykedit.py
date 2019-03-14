@@ -52,9 +52,16 @@ chkpanel.SetSizerAndFit(cpsiz)
 split1.SplitVertically(tree, chkpanel, 200)
 #notebook.AddPage(split1, "Chunks")
 
-def savelvl(event): lvl.save('lvl.kwn')
-def saveloc(event): loc.save('loc.kwn')
-def savesec(event): sec.save('sec.kwn')
+def save_kfile(kf):
+    if not AskForSavingChunk():
+        return
+    fn = wx.FileSelector("Save %s file" % kf.desc, wildcard="K file (*.kwn;*.kgc;*.kp2)|*.kwn;*.kgc;*.kp2", flags=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT)
+    if fn.strip():
+        kf.save(fn)
+
+def savelvl(event): save_kfile(lvl)
+def saveloc(event): save_kfile(loc)
+def savesec(event): save_kfile(sec)
 
 def open_kfile(fn):
     global lvl, sec, loc, gam
@@ -72,7 +79,7 @@ def open_kfile(fn):
     updateChunkTree()
 
 def openkfcmd(event):
-    fn = wx.FileSelector("Open K file", wildcard="K file (*.kwn;*.kgc;*.kp2)|*.kwn;*.kgc;*.kp2")
+    fn = wx.FileSelector("Open K file", wildcard="K file (*.kwn;*.kgc;*.kp2)|*.kwn;*.kgc;*.kp2", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
     if fn.strip():
         open_kfile(fn)
 
@@ -102,37 +109,47 @@ def groundsToObj(obj,kk,base=1,prefix=''):
     return base
 
 def colobj(event):
-    obj = open('colli.obj', mode='w')
+    fn = wx.FileSelector("Export collision to OBJ", wildcard="OBJ model file (*.obj)|*.obj", flags=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT)
+    if not fn.strip(): return
+    obj = open(fn, mode='w')
     base = 1
     for kk in (lvl,sec):
         base = groundsToObj(obj,kk,base)
     obj.close()
 
 def geoobj(event):
-    obj = open('geom.obj', mode='w')
-    obj.write('mtllib geom.mtl\n')
-    base = 1
-    normbase = 1
-    for kk in (lvl,sec):
-        if kk != None:
-            for gt in (1,2,3):
-                if (10,gt) in kk.kclasses:
-                    gkc = kk.kclasses[(10,gt)]
-                    print('-- %i --' % gt)
-                    for chk in gkc.chunks:
-                        try:
-                            geolist = chkviewers.GeometryList(io.BytesIO(chk.data),ver=chk.ver)
-                        except:
-                            print('Failed to open geometry', chk.cid)
-                            continue
-                        if len(geolist.geos) == 0:
-                            continue
-                        geo = geolist.geos[0]
-                        print(chk.cid, ':', geo.valid)
-                        if geo.valid:
-                            obj.write('o %s_%s_%04i\n' % (kk.desc,getclname(10,gt),chk.cid))
-                            base,normbase = geo.exportToOBJ(obj, base, normbase)
-    obj.close()
+    fn = wx.FileSelector("Export all geometries to OBJ", wildcard="OBJ model file (*.obj)|*.obj", flags=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT)
+    if not fn.strip(): return
+    mtlname = os.path.splitext(fn)[0] + ".mtl"
+    matset = set()
+    with open(fn, mode='w') as obj:
+        obj.write('mtllib %s\n' % os.path.basename(mtlname))
+        base,normbase = 1,1
+        for kk in (lvl,sec):
+            if kk != None:
+                for gt in (1,2,3):
+                    if (10,gt) in kk.kclasses:
+                        gkc = kk.kclasses[(10,gt)]
+                        print('-- %i --' % gt)
+                        for chk in gkc.chunks:
+                            try:
+                                geolist = chkviewers.GeometryList(io.BytesIO(chk.data),ver=chk.ver)
+                            except:
+                                print('Failed to open geometry', chk.cid)
+                                continue
+                            if len(geolist.geos) == 0:
+                                continue
+                            geo = geolist.geos[0]
+                            print('Exporting', chk.cid, ':', geo.valid)
+                            if geo.valid:
+                                obj.write('o %s_%s_%04i\n' % (kk.desc,getclname(10,gt),chk.cid))
+                                base,normbase = geo.exportToOBJ(obj, base, normbase)
+                                matset.update((m.name for m in geo.materials))
+    with open(mtlname, mode='w') as mtlfile:
+        mtlfile.write('newmtl NoTexture\n')
+        for matname in matset:
+            name = matname.decode(encoding='latin_1')
+            mtlfile.write('newmtl %s\nmap_Kd textures/%s\n' % (name, name+'.png'))
 
 def romeobj(event):
     obj = open('rome.obj', mode='w')
@@ -146,9 +163,11 @@ def romeobj(event):
     obj.close()
 
 def exporttextures(event):
-    os.makedirs('textures', exist_ok=True)
-    mtl = open('geom.mtl', 'w')
-    mtl.write('newmtl NoTexture\n')
+    dirname = wx.DirSelector(message="Select the destination directory for the extracted textures")
+    if not dirname.strip(): return
+    #os.makedirs(dirname, exist_ok=True)
+    #mtl = open('geom.mtl', 'w')
+    #mtl.write('newmtl NoTexture\n')
     for kk in (lvl,sec):
         if kk == None: continue
         if not ((9,2) in kk.kclasses): continue
@@ -157,9 +176,9 @@ def exporttextures(event):
         for tex in tdt.textures:
             img = tex.convertToWxImage()
             name = tex.name.decode(encoding='latin_1')
-            img.SaveFile('textures/' + name + '.png')
-            mtl.write('newmtl %s\nmap_Kd textures/%s\n' % (name, name+'.png'))
-    mtl.close()
+            img.SaveFile(dirname + '/' + name + '.png')
+            #mtl.write('newmtl %s\nmap_Kd textures/%s\n' % (name, name+'.png'))
+    #mtl.close()
 
 def showscene(ev):
     sceneframe = wx.Frame(None, title="Scene Viewer", size=(960,600))
@@ -223,19 +242,27 @@ def showRefViewer(ev):
     edt.Bind(wx.EVT_TEXT, valchange)
     rv.Show()
 
+def readmefile(evt):
+    if os.name == 'nt':
+        import ctypes
+        ctypes.windll.shell32.ShellExecuteW(0, "open", "readme.txt", 0, 0, 10)
+
+def aboutapp(evt):
+    wx.MessageBox("XXL Editor - Preview 1\nAdrienTD")
+
 menu = wx.Menu()
-menu.Append(1, "Open...")
+menu.Append(901, "Open...")
 menu.AppendSeparator()
-menu.Append(0, "Save LVL")
-menu.Append(7, "Save LOC")
-menu.Append(8, "Save STR")
+menu.Append(900, "Save LVL")
+menu.Append(907, "Save LOC")
+menu.Append(908, "Save STR")
 chkmenu = wx.Menu()
 chkmenu.Append(201, "Update")
 toolmenu = wx.Menu()
 toolmenu.Append(6, "Scene Viewer")
 toolmenu.AppendSeparator()
-toolmenu.Append(2, "Create collision OBJ")
-toolmenu.Append(3, "Create geometry OBJ")
+toolmenu.Append(2, "Export collision to OBJ")
+toolmenu.Append(3, "Export all geometries to OBJ")
 #toolmenu.Append(4, "Export collision of whole Rome")
 toolmenu.Append(5, "Export all textures")
 toolmenu.AppendSeparator()
@@ -248,21 +275,25 @@ vermenu.AppendRadioItem(102, "Asterix XXL 2")
 vermenu.AppendRadioItem(103, "Asterix Olympic Games")
 vermenu.AppendSeparator()
 vermenu.AppendCheckItem(109, "Demo")
+helpmenu = wx.Menu()
+helpmenu.Append(301, "Readme file")
+helpmenu.Append(302, "About...")
 menubar = wx.MenuBar()
 menubar.Append(menu, "File")
 #menubar.Append(chkmenu, "Chunk")
 menubar.Append(toolmenu, "Tools")
 menubar.Append(vermenu, "Version")
+menubar.Append(helpmenu, "Help")
 frm.SetMenuBar(menubar)
-frm.Bind(wx.EVT_MENU, savelvl, id=0)
-frm.Bind(wx.EVT_MENU, openkfcmd, id=1)
+frm.Bind(wx.EVT_MENU, savelvl, id=900)
+frm.Bind(wx.EVT_MENU, openkfcmd, id=901)
 frm.Bind(wx.EVT_MENU, colobj, id=2)
 frm.Bind(wx.EVT_MENU, geoobj, id=3)
 frm.Bind(wx.EVT_MENU, romeobj, id=4)
 frm.Bind(wx.EVT_MENU, exporttextures, id=5)
 frm.Bind(wx.EVT_MENU, showscene, id=6)
-frm.Bind(wx.EVT_MENU, saveloc, id=7)
-frm.Bind(wx.EVT_MENU, savesec, id=8)
+frm.Bind(wx.EVT_MENU, saveloc, id=907)
+frm.Bind(wx.EVT_MENU, savesec, id=908)
 frm.Bind(wx.EVT_MENU, listshadow, id=9)
 frm.Bind(wx.EVT_MENU, userfindhex, id=10)
 frm.Bind(wx.EVT_MENU, showRefViewer, id=11)
@@ -273,6 +304,9 @@ frm.Bind(wx.EVT_MENU, setkver3, id=103)
 frm.Bind(wx.EVT_MENU, toggledrm, id=109)
 
 frm.Bind(wx.EVT_MENU, update_chunk, id=201)
+
+frm.Bind(wx.EVT_MENU, readmefile, id=301)
+frm.Bind(wx.EVT_MENU, aboutapp, id=302)
 
 class KFileDropTarget(wx.FileDropTarget):
     def OnDropFiles(self, x, y, filenames):
@@ -367,30 +401,39 @@ def AskForSavingChunk():
     td = curchk
     if 'modified' in cvw.__dict__ and cvw.modified:
         assert type(td) == KChunk
-        answ = wx.MessageBox("Save changes?", style=wx.YES_NO | wx.CANCEL)
+        answ = wx.MessageBox("Do you want to save and keep the changes to the currently selected chunk in memory?", style=wx.YES_NO | wx.CANCEL)
         if answ == wx.YES:
             cvw.update(td)
         elif answ == wx.CANCEL:
             return False
     return True
 
+treemenuitem = None
+
 def treemenu(event):
+    global treemenuitem
+    treemenuitem = event.GetItem()
+    td = tree.GetItemData(treemenuitem)
     m = wx.Menu()
-    m.Append(1000, "Find in references")
-    m.Append(1001, "Find in GUID references")
-    m.Append(1002, "Find out references")
+    if type(td) == KChunk:
+        m.Append(1000, "Find in references")
+        m.Append(1001, "Find in GUID references")
+        m.Append(1002, "Find out references")
+    elif isinstance(td, PackFile):
+        m.Append(1003, "Close file")
+    else:
+        m.Append(1099, str(type(td)))
+        m.Enable(1099, False)
     tree.PopupMenu(m)
 
 def treefindref(event):
-    td = tree.GetItemData(tree.GetSelection())
-    print(td)
+    td = tree.GetItemData(treemenuitem)
     if type(td) != KChunk: return
     bs = struct.pack('<I', td.kcl.cltype | (td.kcl.clid << 6) | (td.cid << 17))
     findhex(bs)
 
 def treefindguid(event):
-    td = tree.GetItemData(tree.GetSelection())
-    print(td)
+    td = tree.GetItemData(treemenuitem)
     if type(td) != KChunk: return
     bs = b'\xFD\xFF\xFF\xFF' + td.guid
     findhex(bs)
@@ -412,7 +455,8 @@ def getChunkFromGUID(guid):
     return None
 
 def treefindrefout(event):
-    td = tree.GetItemData(tree.GetSelection())
+    td = tree.GetItemData(treemenuitem)
+    print('----', getclname(td.kcl.cltype,td.kcl.clid), td.cid, '----')
     o = 0
     for o in range(len(td.data)-3):
         s = td.data[o:o+4]
@@ -421,16 +465,25 @@ def treefindrefout(event):
             chk = getChunkFromGUID(guid)
             if chk:
                 n = getclname(chk.kcl.cltype,chk.kcl.clid)
-                print('Found GUID:', n, chk.cid)
+                print('0x%08X: Found GUID:' % o, n, chk.cid)
             else:
-                print('Found unknown GUID:', guid)
+                print('0x%08X: Found unknown GUID:' % o, guid)
         else:
             i, = struct.unpack('I', s)
             t = (i & 63, (i>>6) & 2047, i >> 17)
             if t[2] >= 2048: continue
             n = getclname(t[0],t[1])
             if n[0] != '<':
-                print('Found ref:', n, t)
+                print('0x%08X: Found ref:' % o, n, t)
+
+def treeclosefile(event):
+    global gam,lvl,sec,loc
+    td = tree.GetItemData(treemenuitem)
+    if td == gam: gam = None
+    if td == lvl: lvl = None
+    if td == sec: sec = None
+    if td == loc: loc = None
+    updateChunkTree()
 
 tree.Bind(wx.EVT_TREE_SEL_CHANGED, selchunkchanged)
 tree.Bind(wx.EVT_TREE_SEL_CHANGING, selchunkchanging)
@@ -438,6 +491,7 @@ tree.Bind(wx.EVT_TREE_ITEM_MENU, treemenu)
 tree.Bind(wx.EVT_MENU, treefindref, id=1000)
 tree.Bind(wx.EVT_MENU, treefindguid, id=1001)
 tree.Bind(wx.EVT_MENU, treefindrefout, id=1002)
+tree.Bind(wx.EVT_MENU, treeclosefile, id=1003)
 
 frm.Show()
 app.MainLoop()

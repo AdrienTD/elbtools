@@ -24,6 +24,7 @@ class TexDictView(wx.Panel):
         self.chk = chk
         #self.SetBackgroundColour(wx.Colour(255,0,0))
         self.split1 = split1 = wx.SplitterWindow(self, style=wx.SP_LIVE_UPDATE|wx.SP_3D)#, size=(700,500))
+        self.split1.SetMinimumPaneSize(16)
         self.lb = wx.ListBox(split1)
         tp = self.tp = wx.Panel(split1)
         split1.SplitVertically(self.lb, tp, 180)
@@ -122,17 +123,27 @@ class GeometryView(wx.glcanvas.GLCanvas):
         for kk in files:
             if kk == None: continue
             if not ((9,2) in kk.kclasses): continue
-            tc = kk.kclasses[(9,2)].chunks[0]
-            tdt = TextureDictionary(io.BytesIO(tc.data), tc.ver)
-            self.texdicts.append(tdt.textures)
+            try:
+                tc = kk.kclasses[(9,2)].chunks[0]
+                tdt = TextureDictionary(io.BytesIO(tc.data), tc.ver)
+                self.texdicts.append(tdt.textures)
+            except Exception as e:
+                print('Failed to load texture dictionary:', e)
             
-        self.geolist = GeometryList(io.BytesIO(chk.data), ver=chk.ver)
+        self.geolists = []
+        c = chk
+        while c:
+            gl = GeometryList(io.BytesIO(c.data), ver=c.ver, kfiles=files)
+            self.geolists.append(gl)
+            c = gl.nextgeo
+        assert self.geolists
+
         self.geoindex = 0
-        if self.geolist.geos:
-            self.geo = self.geolist.geos[self.geoindex]
+        if self.geolists[0].geos:
+            self.geo = self.geolists[0].geos[self.geoindex]
             self.valid = self.geo.valid
 
-        super().__init__(*args,**kw)
+        super().__init__(*args,**kw, style=wx.WANTS_CHARS)
         self.context = wx.glcanvas.GLContext(self)
         self.glinitialized = False
         self.Bind(wx.EVT_ERASE_BACKGROUND, self.OnEraseBackground)
@@ -142,8 +153,20 @@ class GeometryView(wx.glcanvas.GLCanvas):
         self.Bind(wx.EVT_LEFT_DOWN, self.OnMotion)
         self.Bind(wx.EVT_LEFT_UP, self.OnMotion)
         self.Bind(wx.EVT_MOUSEWHEEL, self.OnWheel)
-        self.Bind(wx.EVT_CHAR, self.OnChar)
+        self.Bind(wx.EVT_KEY_DOWN, self.OnChar)
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
+        self.Bind(wx.EVT_CONTEXT_MENU, self.OnContextMenu)
+        self.Bind(wx.EVT_MENU, self.CmdSaveOBJ, id=1000)
+
+        for i in (1001,1002,1003,1004):
+            self.Bind(wx.EVT_MENU, self.CmdChangeView, id=i)
+
+        accent = [wx.AcceleratorEntry(0, ord('L'), 1001),
+                  wx.AcceleratorEntry(0, ord('M'), 1002),
+                  wx.AcceleratorEntry(0, ord('O'), 1003),
+                  wx.AcceleratorEntry(0, ord('P'), 1004)]
+        acctab = wx.AcceleratorTable(accent)
+        self.SetAcceleratorTable(acctab)
 
         center = [0,0,0]
         if self.valid:
@@ -157,13 +180,14 @@ class GeometryView(wx.glcanvas.GLCanvas):
 
         self.campos = tuple(center)
         self.camdir = (0,0,-1)
-        self.camstr = (1,0,0)
+        self.camstr = (-1,0,0)
         self.camori_y = math.pi
         self.camori_x = 0
         self.dragstart_m = None
         self.dragstart_o = None
 
         self.wireframe = False
+        self.shownextgeos = False
 
     def OnEraseBackground(self, event):
         pass
@@ -174,11 +198,12 @@ class GeometryView(wx.glcanvas.GLCanvas):
             self.dragstart_m = event.GetPosition()
             self.dragstart_y = self.camori_y
             self.dragstart_x = self.camori_x
-            print(self.dragstart_m)
+            #print(self.dragstart_m)
         elif event.LeftUp():
             self.dragstart_m = None
             self.dragstart_y = self.dragstart_x = None
         elif event.Dragging():
+            if self.dragstart_m == None: return
             rel = event.GetPosition() - self.dragstart_m
             self.camori_y = self.dragstart_y - rel.x * math.pi / 200
             self.camori_x = self.dragstart_x - rel.y * math.pi / 200
@@ -195,25 +220,18 @@ class GeometryView(wx.glcanvas.GLCanvas):
             self.campos = tuple(self.campos[x] - self.camstr[x]*w*0.1 for x in range(3))
         self.Refresh()
     def OnChar(self, event):
-        key = chr(event.GetKeyCode()).upper()
-        if key == 'Z' or key == 'W':
+        keycode = event.GetKeyCode()
+        keychar = chr(keycode).upper()
+        if keycode == wx.WXK_UP or keychar == 'Z' or keychar == 'W':
             self.campos = tuple(self.campos[x] + self.camdir[x] for x in range(3))
-        if key == 'S':
+        if keycode == wx.WXK_DOWN or keychar == 'S':
             self.campos = tuple(self.campos[x] - self.camdir[x] for x in range(3))
-        if key == 'Q' or key == 'A':
+        if keycode == wx.WXK_LEFT or keychar == 'Q' or keychar == 'A':
             self.campos = tuple(self.campos[x] + self.camstr[x] for x in range(3))
-        if key == 'D':
+        if keycode == wx.WXK_RIGHT or keychar == 'D':
             self.campos = tuple(self.campos[x] - self.camstr[x] for x in range(3))
-        if key == 'L':
-            self.wireframe = not self.wireframe
-        if key == 'O':
-            if self.geoindex > 0:
-                self.geoindex -= 1
-                self.geo = self.geolist.geos[self.geoindex]
-        if key == 'P':
-            if self.geoindex < len(self.geolist.geos)-1:
-                self.geoindex += 1
-                self.geo = self.geolist.geos[self.geoindex]
+        if keycode == wx.WXK_TAB:
+            self.Navigate()
         self.Refresh()
     def OnLeftDown(self, event):
         self.SetFocus()
@@ -223,31 +241,32 @@ class GeometryView(wx.glcanvas.GLCanvas):
         glEnable(GL_TEXTURE_2D)
         glEnable(GL_ALPHA_TEST)
         glAlphaFunc(GL_GEQUAL, 0.8)
-        for g in self.geolist.geos:
-            g.gltextures = []
-            for m in g.materials:
-                fnd = None
-                for d in self.texdicts:
-                    for t in d:
-                        if t.name == m.name:
-                            fnd = t
-                if fnd:
-                    if fnd.bpp <= 8:
-                        td = bytearray(fnd.width*fnd.height*4)
-                        for i in range(fnd.width*fnd.height):
-                            td[4*i:4*i+4] = fnd.pal[fnd.dat[i]]
-                    elif fnd.bpp == 32:
-                        td = fnd.dat
+        for l in self.geolists:
+            for g in l.geos:
+                g.gltextures = []
+                for m in g.materials:
+                    fnd = None
+                    for d in self.texdicts:
+                        for t in d:
+                            if t.name == m.name:
+                                fnd = t
+                    if fnd:
+                        if fnd.bpp <= 8:
+                            td = bytearray(fnd.width*fnd.height*4)
+                            for i in range(fnd.width*fnd.height):
+                                td[4*i:4*i+4] = fnd.pal[fnd.dat[i]]
+                        elif fnd.bpp == 32:
+                            td = fnd.dat
+                        else:
+                            assert False
+                        glt = glGenTextures(1)
+                        glBindTexture(GL_TEXTURE_2D, glt)
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fnd.width, fnd.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, bytes(td))
+                        g.gltextures.append(glt)
                     else:
-                        assert False
-                    glt = glGenTextures(1)
-                    glBindTexture(GL_TEXTURE_2D, glt)
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fnd.width, fnd.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, bytes(td))
-                    g.gltextures.append(glt)
-                else:
-                    g.gltextures.append(None)
+                        g.gltextures.append(None)
         self.glinitialized = True
         
     def OnPaint(self, event):
@@ -276,28 +295,76 @@ class GeometryView(wx.glcanvas.GLCanvas):
             curtex = None
             glColor4f(1,1,1,1)
             glBegin(GL_TRIANGLES)
-            for t in self.geo.tris:
-                ttx = self.geo.gltextures[t[3]]
-                if ttx != curtex:
-                    glEnd()
-                    if ttx == None:
-                        glDisable(GL_TEXTURE_2D)
-                    else:
-                        glEnable(GL_TEXTURE_2D)
-                        glBindTexture(GL_TEXTURE_2D, ttx)
-                    curtex = ttx
-                    glBegin(GL_TRIANGLES)
-                for i in range(3):
-                    x = t[i]
-                    if self.geo.colors:
-                        c = self.geo.colors[x]
-                        glColor4ub(c[0],c[1],c[2],c[3])
-                    u = self.geo.texcrd[x]
-                    glTexCoord2f(u[0],u[1])
-                    v = self.geo.verts[x]
-                    glVertex3f(v[0],v[1],v[2])
+            for gl in self.geolists if self.shownextgeos else self.geolists[0:1]:
+                geo = gl.geos[self.geoindex]
+                for t in geo.tris:
+                    ttx = geo.gltextures[t[3]]
+                    if ttx != curtex:
+                        glEnd()
+                        if ttx == None:
+                            glDisable(GL_TEXTURE_2D)
+                        else:
+                            glEnable(GL_TEXTURE_2D)
+                            glBindTexture(GL_TEXTURE_2D, ttx)
+                        curtex = ttx
+                        glBegin(GL_TRIANGLES)
+                    for i in range(3):
+                        x = t[i]
+                        if geo.colors:
+                            c = geo.colors[x]
+                            glColor4ub(c[0],c[1],c[2],c[3])
+                        u = geo.texcrd[x]
+                        glTexCoord2f(u[0],u[1])
+                        v = geo.verts[x]
+                        glVertex3f(v[0],v[1],v[2])
             glEnd()
             self.SwapBuffers()
+
+    def OnContextMenu(self, evt):
+        m = wx.Menu()
+        m.AppendCheckItem(1001, "Wireframe\tL")
+        m.AppendCheckItem(1002, "Show connected geometries\tM")
+        m.Append(1003, "Previous costume\tO")
+        m.Append(1004, "Next costume\tP")
+        m.AppendSeparator()
+        m.Append(1000, "Save as OBJ...")
+        m.Check(1001, self.wireframe)
+        m.Check(1002, self.shownextgeos)
+        self.PopupMenu(m)
+
+    def CmdChangeView(self, evt):
+        cmd = evt.GetId()
+        if cmd == 1001:
+            self.wireframe = not self.wireframe
+        elif cmd == 1003:
+            if self.geoindex > 0:
+                self.geoindex -= 1
+                self.geo = self.geolists[0].geos[self.geoindex]
+        elif cmd == 1004:
+            if self.geoindex < len(self.geolists[0].geos)-1:
+                self.geoindex += 1
+                self.geo = self.geolists[0].geos[self.geoindex]
+        elif cmd == 1002:
+            self.shownextgeos = not self.shownextgeos
+        self.Refresh()
+
+    def CmdSaveOBJ(self, evt):
+        fn = wx.FileSelector("Export to OBJ", wildcard="OBJ model file (*.obj)|*.obj", flags=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT)
+        if not fn.strip(): return
+        matlist = []
+        with open(fn, 'w') as objfile:
+            objfile.write('mtllib %s.mtl\n' % os.path.splitext(os.path.basename(fn))[0])
+            base,normbase = 1,1
+            for gl in self.geolists if self.shownextgeos else self.geolists[0:1]:
+                geo = gl.geos[self.geoindex]
+                base,normbase = geo.exportToOBJ(objfile, base, normbase)
+                matlist.extend(geo.materials)
+        mtlname = os.path.splitext(fn)[0] + ".mtl"
+        with open(mtlname, 'w') as mtlfile:
+            mtlfile.write('newmtl NoTexture\n')
+            for mat in matlist:
+                name = mat.name.decode(encoding='latin_1')
+                mtlfile.write('newmtl %s\nmap_Kd textures/%s\n' % (name, name+'.png'))
 
 class MoreSpecificInfoView(wx.TextCtrl):
     def __init__(self, chk, *args, **kw):

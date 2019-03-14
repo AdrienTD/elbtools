@@ -149,7 +149,7 @@ class Geometry:
         assert gmt == 0xF
         stt, sts, stv = readpack(f, "III")
         assert stt == 1
-        self.flags,self.num_uvmaps = readpack(f, "HH")
+        self.flags,self.num_uvmaps,self.natflags = readpack(f, "HBB")
         self.num_tris,self.num_verts, = readpack(f, "II")
         self.num_morph_targets, = readpack(f, "I")
         dbg('num_morph_targets:', self.num_morph_targets)

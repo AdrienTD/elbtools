@@ -190,6 +190,8 @@ class ScenePanel(wx.Panel):
         self.nodetree = wx.TreeCtrl(self.spl2)
         self.propgrid = wx.propgrid.PropertyGrid(self.spl2)
         self.viewer = SceneViewer(kfiles, self, self.spl)
+        self.spl.SetMinimumPaneSize(16)
+        self.spl2.SetMinimumPaneSize(16)
         self.spl2.SplitHorizontally(self.nodetree, self.propgrid, -150)
         self.spl.SplitVertically(self.spl2, self.viewer, 150)
         self.spl2.SetSashGravity(1)
@@ -218,6 +220,8 @@ class ScenePanel(wx.Panel):
                 self.secroots.append(secrootnode)
                 insertnode(secrootnode, treeroot)
 
+        self.p_type = self.propgrid.Append(wx.propgrid.StringProperty('Type'))
+        self.p_id   = self.propgrid.Append(wx.propgrid.IntProperty('ID'))
         self.p_posx = self.propgrid.Append(wx.propgrid.FloatProperty('Pos X'))
         self.p_posy = self.propgrid.Append(wx.propgrid.FloatProperty('Pos Y'))
         self.p_posz = self.propgrid.Append(wx.propgrid.FloatProperty('Pos Z'))
@@ -228,6 +232,8 @@ class ScenePanel(wx.Panel):
     def OnTree(self, event):
         node = self.nodetree.GetItemData(event.GetItem())
         self.viewer.campos = tuple(Vector3(*node.matrix[12:15]) - 5*Vector3(*self.viewer.camdir))
+        self.p_type.SetValue(getclname(11, node.clid))
+        self.p_id.SetValue(node.id)
         self.p_posx.SetValue(node.matrix[12])
         self.p_posy.SetValue(node.matrix[13])
         self.p_posz.SetValue(node.matrix[14])
@@ -235,7 +241,7 @@ class ScenePanel(wx.Panel):
 
 class SceneViewer(wx.glcanvas.GLCanvas):
     def __init__(self, kfiles, panel, *args, **kw):
-        super().__init__(*args,**kw)
+        super().__init__(*args,**kw, style=wx.WANTS_CHARS)
         self.context = wx.glcanvas.GLContext(self)
         self.glinitialized = False
         self.Bind(wx.EVT_ERASE_BACKGROUND, self.OnEraseBackground)
@@ -245,8 +251,16 @@ class SceneViewer(wx.glcanvas.GLCanvas):
         self.Bind(wx.EVT_LEFT_DOWN, self.OnMotion)
         self.Bind(wx.EVT_LEFT_UP, self.OnMotion)
         self.Bind(wx.EVT_MOUSEWHEEL, self.OnWheel)
-        self.Bind(wx.EVT_CHAR, self.OnChar)
+        self.Bind(wx.EVT_KEY_DOWN, self.OnChar)
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
+        self.Bind(wx.EVT_CONTEXT_MENU, self.OnContextMenu)
+
+        keymap = {1001:'L',1002:'N',1003:'G'}
+        for i in keymap:
+            self.Bind(wx.EVT_MENU, self.CmdChangeView, id=i)
+        accent = [wx.AcceleratorEntry(0, ord(keymap[i]), i) for i in keymap]
+        acctab = wx.AcceleratorTable(accent)
+        self.SetAcceleratorTable(acctab)
 
         self.campos = (0,0,0)
         self.camdir = (0,0,-1)
@@ -301,9 +315,12 @@ class SceneViewer(wx.glcanvas.GLCanvas):
         for kk in kfiles:
             if kk == None: continue
             if not ((9,2) in kk.kclasses): continue
-            tc = kk.kclasses[(9,2)].chunks[0]
-            tdt = TextureDictionary(io.BytesIO(tc.data), tc.ver)
-            self.texdicts.append(tdt.textures)
+            try:
+                tc = kk.kclasses[(9,2)].chunks[0]
+                tdt = TextureDictionary(io.BytesIO(tc.data), tc.ver)
+                self.texdicts.append(tdt.textures)
+            except Exception as e:
+                print('Failed to load texture dictionary:', e)
 
     def OnEraseBackground(self, event):
         pass
@@ -319,6 +336,7 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             self.dragstart_m = None
             self.dragstart_y = self.dragstart_x = None
         elif event.Dragging():
+            if self.dragstart_m == None: return
             rel = event.GetPosition() - self.dragstart_m
             self.camori_y = self.dragstart_y - rel.x * math.pi / 200
             self.camori_x = self.dragstart_x - rel.y * math.pi / 200
@@ -334,20 +352,27 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             self.campos = tuple(self.campos[x] + self.camstr[x]*w*0.1 for x in range(3))
         self.Refresh()
     def OnChar(self, event):
-        key = chr(event.GetKeyCode()).upper()
-        if key == 'Z' or key == 'W':
+        keycode = event.GetKeyCode()
+        keychar = chr(keycode).upper()
+        if keycode == wx.WXK_UP or keychar == 'Z' or keychar == 'W':
             self.campos = tuple(self.campos[x] + self.camdir[x] for x in range(3))
-        if key == 'S':
+        if keycode == wx.WXK_DOWN or keychar == 'S':
             self.campos = tuple(self.campos[x] - self.camdir[x] for x in range(3))
-        if key == 'Q' or key == 'A':
+        if keycode == wx.WXK_LEFT or keychar == 'Q' or keychar == 'A':
             self.campos = tuple(self.campos[x] + self.camstr[x] for x in range(3))
-        if key == 'D':
+        if keycode == wx.WXK_RIGHT or keychar == 'D':
             self.campos = tuple(self.campos[x] - self.camstr[x] for x in range(3))
-        if key == 'L':
+        if keycode == wx.WXK_TAB:
+            self.Navigate()
+        self.Refresh()
+
+    def CmdChangeView(self, event):
+        cmd = event.GetId()
+        if cmd == 1001:
             self.wireframe = not self.wireframe
-        if key == 'N':
+        elif cmd == 1002:
             self.shownodes = not self.shownodes
-        if key == 'G':
+        elif cmd == 1003:
             self.showgrounds = not self.showgrounds
         self.Refresh()
 
@@ -446,4 +471,15 @@ class SceneViewer(wx.glcanvas.GLCanvas):
     def OnLeftDown(self, event):
         self.SetFocus()
         event.Skip()
+
+    def OnContextMenu(self, evt):
+        m = wx.Menu()
+        m.AppendCheckItem(1001, "Wireframe\tL")
+        m.AppendCheckItem(1002, "Show nodes\tN")
+        m.AppendCheckItem(1003, "Show grounds (collision)\tG")
+        m.Check(1001, self.wireframe)
+        m.Check(1002, self.shownodes)
+        m.Check(1003, self.showgrounds)
+        self.PopupMenu(m)
+
 

@@ -183,6 +183,9 @@ class LevelFile(PackFile):
         def dreadpack(f, v):
             dbg('readpack:', v, 'from', hex(f.tell()))
             return readpack(f, v)
+        if os.path.splitext(fn)[1].lower() != '.kwn':
+            print('not KWN -> console version -> No DRM')
+            hasdrm = False
         kwnfile = open(fn, 'rb')
         if self.ver <= 1: self.numz, = dreadpack(kwnfile, "I")
         if hasdrm:
