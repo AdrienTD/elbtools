@@ -7,6 +7,15 @@ from objects import *
 from kfiles import *
 import kfiles
 
+def readobjref(kwn):
+    i, = readpack(kwn, 'I')
+    if i == 0xFFFFFFFF:
+        return None
+    elif i == 0xFFFFFFFD:
+        return kwn.read(16)
+    else:
+        return (i & 63, (i>>6) & 2047, i >> 17)
+
 class UnknownView(wx.Panel):
     def __init__(self, chk, *args, **kw):
         super(UnknownView,self).__init__(*args,**kw)
@@ -32,7 +41,8 @@ class TexDictView(wx.Panel):
         cmds = wx.BoxSizer()
         bt = wx.Button(tp, label="Replace texture")
         bt2 = wx.Button(tp, label="Save dictionary")
-        cmds.AddMany((bt,bt2))
+        bt3 = wx.Button(tp, label="Insert texture")
+        cmds.AddMany((bt,bt3,bt2))
         #self.sb = wx.StaticBitmap(tp,size=wx.Size(256,256))
         #self.sb.SetSize(wx.Size(256,256))
         self.infotxt = wx.StaticText(tp)
@@ -49,6 +59,7 @@ class TexDictView(wx.Panel):
         self.lb.Bind(wx.EVT_LISTBOX, self.seltexchanged)
         bt.Bind(wx.EVT_BUTTON, self.replacetex)
         bt2.Bind(wx.EVT_BUTTON, self.savedict)
+        bt3.Bind(wx.EVT_BUTTON, self.inserttex)
         tp.Bind(wx.EVT_PAINT, self.OnPaint)
         
         self.textures = self.texdic.textures
@@ -79,29 +90,13 @@ class TexDictView(wx.Panel):
             dc.DrawBitmap(self.curbmp, 0, 96)
 
     def replacetex(self, event):
-        fn = wx.FileSelector("Replace texture with", wildcard="Image file " + wx.Image.GetImageExtWildcard())
-        print(fn)
+        fn = wx.FileSelector("Replace texture with", wildcard="Image file " + wx.Image.GetImageExtWildcard(), flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
         if not fn.strip():
             return
         newimg = wx.Image(fn)
-        newdat = newimg.GetData()
-        hasalp = newimg.HasAlpha()
-        if hasalp:
-            newalp = newimg.GetAlpha()
         tex = self.textures[self.lb.GetSelection()]
         self.modified = True
-        tex.width = newimg.GetWidth()
-        tex.height = newimg.GetHeight()
-        tex.bpp = 32
-        tex.pitch = tex.width * 4
-        tex.pal = []
-        tex.dat = bytearray(tex.pitch*tex.height)
-        x = y = a = 0
-        for i in range(tex.width*tex.height):
-            tex.dat[x:x+4] = (*newdat[y:y+3], newalp[a] if hasalp else 255)
-            x += 4
-            y += 3
-            a += 1
+        tex.loadFromWxImage(newimg)
         self.drawtex()
         
     def update(self, chk):
@@ -113,6 +108,21 @@ class TexDictView(wx.Panel):
 
     def savedict(self, event):
         self.update(self.chk)
+
+    def inserttex(self, event):
+        fn = wx.FileSelector("Insert texture", wildcard="Image file " + wx.Image.GetImageExtWildcard(), flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
+        if not fn.strip():
+            return
+        newimg = wx.Image(fn)
+        tex = Texture()
+        tex.loadFromWxImage(newimg)
+        tex.name = os.path.basename(fn).encode(encoding='latin_1')[:31]
+        tex.rwver = self.textures[0].rwver
+        tex.v = (2,1,1)
+        self.modified = True
+        self.textures.append(tex)
+        self.lb.Append(tex.name.decode(encoding='latin_1'))
+        
 
 class GeometryView(wx.glcanvas.GLCanvas):
             
@@ -370,25 +380,45 @@ class MoreSpecificInfoView(wx.TextCtrl):
     def __init__(self, chk, *args, **kw):
         super().__init__(style=wx.TE_MULTILINE|wx.TE_DONTWRAP|wx.TE_READONLY,*args,**kw)
         txt = io.StringIO()
+        def tcprint(*args):
+            print(*args, file=txt)
         if type(chk) == KChunk:
             dattype = (chk.kcl.cltype,chk.kcl.clid)
             if dattype == (12,18) or dattype == (12,19): # CGround or CDynamicGround
                 txt.write("CGround!\n\n")
                 bi = io.BytesIO(chk.data)
                 numa,num_tris,num_verts = readpack(bi, "IHH")
-                print('numa =', numa)
-                print('num_tris =', num_tris)
-                print('num_verts =', num_verts)
-                print('Indices:')
-                for i in range(num_tris):
-                    print(readpack(bi, "HHH"))
-                print('Vertices:')
-                for i in range(num_verts):
-                    print(readpack(bi, "fff"))
-                print('Misc:')
-                print(hex(bi.tell()))
-                print(readpack(bi, "6f"))
-                print(hex(bi.tell()))
+                tcprint('numa =', numa)
+                tcprint('num_tris =', num_tris)
+                tcprint('num_verts =', num_verts)
+                # tcprint('Indices:')
+                # for i in range(num_tris):
+                #     tcprint(readpack(bi, "HHH"))
+                # tcprint('Vertices:')
+                # for i in range(num_verts):
+                #     tcprint(readpack(bi, "fff"))
+                bi.seek(6*num_tris + 12*num_verts, os.SEEK_CUR)
+                tcprint('Misc:')
+                tcprint('off', hex(bi.tell()))
+                tcprint(readpack(bi, "6f"))
+                tcprint('off', hex(bi.tell()))
+                tcprint(readpack(bi, "HH"))
+                if chk.ver >= 2:
+                    tcprint('Neo byte:', readpack(bi, "B"))
+                    if chk.ver >= 3:
+                        tcprint('Invalid ref? :', readobjref(bi))
+                    tcprint('Sector :', readobjref(bi))
+                numy, = readpack(bi, "H")
+                tcprint('Infinite walls:', numy)
+                for i in range(numy):
+                    tcprint(readpack(bi, "HH"))
+                numz, = readpack(bi, "H")
+                tcprint('Finite walls:', numz)
+                for i in range(numz):
+                    tcprint(readpack(bi, "HHff"))
+                tcprint(readpack(bi, "ff"))
+                tcprint('off', hex(bi.tell()))
+                
             elif dattype == (13,3): # CCloneManager
                 def to(*args): print(*args)
                 to("clones")
@@ -423,14 +453,6 @@ class MoreSpecificInfoView(wx.TextCtrl):
                             assert att == 0x14
                             bi.seek(ats, os.SEEK_CUR)
             elif dattype[0] == 11: # Node
-                def readobjref(kwn):
-                    i, = readpack(kwn, 'I')
-                    if i == 0xFFFFFFFF:
-                        return None
-                    elif i == 0xFFFFFFFD:
-                        return kwn.read(16)
-                    else:
-                        return (i & 63, (i>>6) & 2047, i >> 17)
                 def objrefstr(objref):
                     if type(objref) == tuple:
                         return getclname(objref[0], objref[1]) + ', ' + str(objref[2])

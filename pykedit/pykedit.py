@@ -97,15 +97,38 @@ def groundsToObj(obj,kk,base=1,prefix=''):
                 numa,num_tris,num_verts = readpack(bi, "IHH")
                 tris = []
                 verts = []
+                infwalls = []
+                finwalls = []
                 for i in range(num_tris):
                     tris.append(readpack(bi, "HHH"))
                 for i in range(num_verts):
                     verts.append(readpack(bi, "fff"))
+                aabb = readpack(bi, "6f")
+                ctype,param = readpack(bi, "HH")
+                if chk.ver >= 2:
+                    bb, = readpack(bi, "B")
+                    if chk.ver >= 3: readobjref(bi) # ?
+                    readobjref(bi) # Sector
+                numinfwall, = readpack(bi, "H")
+                for i in range(numinfwall):
+                    infwalls.append(readpack(bi, "HH"))
+                numfinwall, = readpack(bi, "H")
+                for i in range(numfinwall):
+                    finwalls.append(readpack(bi, "HHff"))
+
                 for v in verts:
                     obj.write('v %f %f %f\n' % v)
                 for t in tris:
                     obj.write('f %i %i %i\n' % (t[0]+base, t[1]+base, t[2]+base))
                 base += num_verts
+                
+                obj.write('o %s%s_Ground_%04i_Walls\n' % (prefix,kk.desc,chk.cid))
+                for w in finwalls:
+                    for s in range(2):
+                        obj.write('v %f %f %f\n' % verts[w[s]])
+                        obj.write('v %f %f %f\n' % (verts[w[s]][0], verts[w[s]][1] + w[s+2], verts[w[s]][2]))
+                    obj.write('f %i %i %i %i\n' % (base+0, base+1, base+3, base+2))
+                    base += 4
     return base
 
 def colobj(event):
@@ -419,8 +442,11 @@ def treemenu(event):
         m.Append(1000, "Find in references")
         m.Append(1001, "Find in GUID references")
         m.Append(1002, "Find out references")
+        m.AppendSeparator()
+        m.Append(1003, "Export to file...")
+        m.Append(1004, "Import from file...")
     elif isinstance(td, PackFile):
-        m.Append(1003, "Close file")
+        m.Append(2000, "Close file")
     else:
         m.Append(1099, str(type(td)))
         m.Enable(1099, False)
@@ -476,6 +502,20 @@ def treefindrefout(event):
             if n[0] != '<':
                 print('0x%08X: Found ref:' % o, n, t)
 
+def treeexportchunk(event):
+    td = tree.GetItemData(treemenuitem)
+    fn = wx.FileSelector("Export chunk data", flags=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT)
+    if not fn.strip(): return
+    with open(fn, 'wb') as f:
+        f.write(td.data)
+
+def treeimportchunk(event):
+    td = tree.GetItemData(treemenuitem)
+    fn = wx.FileSelector("Import chunk data", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
+    if not fn.strip(): return
+    with open(fn, 'rb') as f:
+        td.data = f.read()
+
 def treeclosefile(event):
     global gam,lvl,sec,loc
     td = tree.GetItemData(treemenuitem)
@@ -491,7 +531,9 @@ tree.Bind(wx.EVT_TREE_ITEM_MENU, treemenu)
 tree.Bind(wx.EVT_MENU, treefindref, id=1000)
 tree.Bind(wx.EVT_MENU, treefindguid, id=1001)
 tree.Bind(wx.EVT_MENU, treefindrefout, id=1002)
-tree.Bind(wx.EVT_MENU, treeclosefile, id=1003)
+tree.Bind(wx.EVT_MENU, treeexportchunk, id=1003)
+tree.Bind(wx.EVT_MENU, treeimportchunk, id=1004)
+tree.Bind(wx.EVT_MENU, treeclosefile, id=2000)
 
 frm.Show()
 app.MainLoop()

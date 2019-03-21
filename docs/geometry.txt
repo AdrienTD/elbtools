@@ -1,0 +1,14 @@
+Geometry
+
+XXL2:
+0x00	ref	?
+0x04	ref	CLightSet
+0x08	uint32	flags
+0x0C	ref	Next Geometry
+0x10	ref	CMaterial
+0x14	ref	?
+0x18	byte	1=has own geo, 0=copy from another geo
+-- If last byte is 0:
+0x19	ref	Geometry to duplicate
+-- Else if it is 1:
+Renderware Atomic (0x14) or ...

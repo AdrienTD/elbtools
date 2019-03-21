@@ -96,13 +96,12 @@ def getChunkFromInt(kflist: list, a: int) -> KChunk:
     return None
 
 lightdir = Vector3(0,1,0).unit()
+tcdict = {0: (1,1,1), 1: (1,0,0), 2: (0,1,0), 4: (1,1,0), 8: (0,0,1), 16: (0,1,1), 128: (1,0,1)}
 
 class Ground:
-    def __init__(self):
-        pass
-    def __init__(self, f):
-        self.load(f)
-    def load(self, bi):
+    def __init__(self, f, ver):
+        self.load(f, ver)
+    def load(self, bi, ver):
         numa,num_tris,num_verts = readpack(bi, "IHH")
         self.tris = []
         self.verts = []
@@ -112,6 +111,33 @@ class Ground:
             self.tris.append(readpack(bi, "HHH"))
         for i in range(num_verts):
             self.verts.append(readpack(bi, "fff"))
+        
+        self.aabb = readpack(bi, "6f")
+        self.type,self.param = readpack(bi, "HH")
+        self.infwalls = []
+        self.finwalls = []
+        if ver >= 2:
+            bb, = readpack(bi, "B")
+            if ver >= 3: readobjref(bi) # ?
+            readobjref(bi) # Sector
+        numinfwall, = readpack(bi, "H")
+        for i in range(numinfwall):
+            self.infwalls.append(readpack(bi, "HH"))
+        numfinwall, = readpack(bi, "H")
+        for i in range(numfinwall):
+            self.finwalls.append(readpack(bi, "HHff"))
+
+        # Add walls in mesh
+        for w in self.finwalls:
+            vi = len(self.verts)
+            self.verts.append(tuple(Vector3(*self.verts[w[0]]) + Vector3(0,w[2],0)))
+            self.verts.append(tuple(Vector3(*self.verts[w[1]]) + Vector3(0,w[3],0)))
+            self.tris.append((w[1], w[0], vi+0))
+            self.tris.append((w[1], vi+0, vi+1))
+
+        #tc = Vector3(1,1,1) - Vector3((self.type>>1)&1, (self.type>>3)&1, (self.type>>4)&1)
+        tc = Vector3(*tcdict.get(self.type, (0,0,0)))
+
         for t in self.tris:
             v1 = Vector3(*self.verts[t[1]]) - Vector3(*self.verts[t[0]])
             v2 = Vector3(*self.verts[t[2]]) - Vector3(*self.verts[t[0]])
@@ -128,7 +154,7 @@ class Ground:
                 self.vtxnorms[i] *= 1/self.vtxnumnorms[i]
         for n in self.vtxnorms:
             d = max(0, min(255, int(n.dot(lightdir)*255)))
-            self.colors.append((d,d,d,255))
+            self.colors.append((d*tc.x,d*tc.y,d*tc.z,255))
         self.glgeo = GLGeometry(self.tris, self.verts, None, self.colors)
 
 class Node:
@@ -279,7 +305,7 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             if kk == None: continue
             if not ((12,18) in kk.kclasses): continue
             for chk in kk.kclasses[(12,18)].chunks:
-                self.grounds.append(Ground(io.BytesIO(chk.data)))
+                self.grounds.append(Ground(io.BytesIO(chk.data), ver=chk.ver))
 
         self.nodes = panel.nodes
         self.secroots = panel.secroots

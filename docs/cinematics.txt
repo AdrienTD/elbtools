@@ -1,0 +1,13 @@
+CKCinematicScene
+
+*: >= XXL2
+
+uint16	??
+*uint16	??
+uint32	numCSDatas
+for i in range(numCSDatas):
+	ref	@CKCinematicSceneData
+uint32	numBlocs
+for i in range(numBlocs):
+	ref	@Cinematic bloc (last one should be CKEndDoor)
+ref	@CKStartDoor

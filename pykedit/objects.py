@@ -29,10 +29,9 @@ class TextureDictionary:
             t.save(f)
 
 class Texture:
-    def __init__(self):
-        pass
-    def __init__(self, f, lv=False):
-        self.load(f, lv)
+    def __init__(self, f=None, lv=False):
+        if f != None:
+            self.load(f, lv)
     def load(self, f, lv):
         if not lv: self.v = readpack(f, "III")
         #print('v:',self.v)
@@ -80,6 +79,23 @@ class Texture:
         img = wx.Image(self.width,self.height,d)
         img.SetAlpha(a)
         return img
+    def loadFromWxImage(self, newimg):
+        newdat = newimg.GetData()
+        hasalp = newimg.HasAlpha()
+        if hasalp:
+            newalp = newimg.GetAlpha()
+        self.width = newimg.GetWidth()
+        self.height = newimg.GetHeight()
+        self.bpp = 32
+        self.pitch = self.width * 4
+        self.pal = []
+        self.dat = bytearray(self.pitch*self.height)
+        x = y = a = 0
+        for i in range(self.width*self.height):
+            self.dat[x:x+4] = (*newdat[y:y+3], newalp[a] if hasalp else 255)
+            x += 4
+            y += 3
+            a += 1
 
 def getChunkFromInt(kflist: list, a: int):
     cltype,clid,chkid = a & 63, (a >> 6) & 2047, a >> 17
@@ -231,6 +247,43 @@ class Geometry:
         f.seek(geoend, os.SEEK_SET)
         dbg('yes')
         self.valid = True
+
+    def save(self, f):
+        writepack(f, "III", 0x14, 0, self.rwver)
+        writepack(f, "III", 1, 16, self.rwver)
+        writepack(f, "4I", 0,0,0,0)
+        writepack(f, "III", 0xF, 0, self.rwver)
+        writepack(f, "III", 1, 0, self.rwver)
+        writepack(f, "HBB", self.flags, self.num_uvmaps, self.natflags)
+        writepack(f, "II", self.num_tris, self.num_verts)
+        writepack(f, "I", 1) # Num morph targets
+        if self.flags & 8:
+            for c in self.colors:
+                writepack(f, "4B", *c)
+        for u in self.texcrd:
+            writepack(f, "ff", *u)
+        for t in self.tris:
+            writepack(f, "4H", t[0], t[1], t[3], t[2])
+        writepack(f, "4f", *self.sphere)
+        writepack(f, "II", self.haspos, self.hasnorms)
+        for v in self.verts:
+            writepack(f, "fff", *v)
+        if self.flags & 0x10:
+            for n in self.normals:
+                writepack(f, "fff", *n)
+
+        writepack(f, "III", 8, 0, self.rwver)
+        writepack(f, "III", 1, 0, self.rwver)
+        writepack(f, "I", len(self.materials))
+        if len(self.materials) > 0:
+            writepack(f, "I", 0) # ??
+        for m in self.materials:
+            writepack(f, "III", 7, 0, self.rwver)
+            writepack(f, "III", 1, 28, self.rwver)
+            writepack(f, "IIIIfff", m.u1,m.color,m.u2,m.textured,m.ambient,m.specular,m.diffuse)
+            if m.textures:
+                writepack(f, "III", 6, 0, self.rwver)
+                writepack(f, "III", 1, 4, self.rwver)
 
     def exportToOBJ(self, obj, base=1, normbase=1):
         for v in self.verts:
