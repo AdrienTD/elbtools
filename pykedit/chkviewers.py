@@ -16,11 +16,10 @@ def readobjref(kwn):
     else:
         return (i & 63, (i>>6) & 2047, i >> 17)
 
-class UnknownView(wx.Panel):
+class UnknownView(wx.TextCtrl):
     def __init__(self, chk, *args, **kw):
-        super(UnknownView,self).__init__(*args,**kw)
-        wx.StaticText(self, label=str(chk)+
-            "\nGUID: "+(''.join(('%X' % i for i in chk.guid)) if chk.guid else 'None')+
+        super(UnknownView,self).__init__(*args,**kw,style=wx.TE_MULTILINE|wx.TE_READONLY,value=str(chk)+
+            "\nGUID: "+(''.join(('%02X' % i for i in chk.guid)) if chk.guid else 'None')+
             "\nSize: " + str(len(chk.data)) +
             "\nNothing to see right now!\nWhat you can do however is toggle the 'Hex' button\nin the bottom to see the binary content.")
 
@@ -420,38 +419,47 @@ class MoreSpecificInfoView(wx.TextCtrl):
                 tcprint('off', hex(bi.tell()))
                 
             elif dattype == (13,3): # CCloneManager
-                def to(*args): print(*args)
-                to("clones")
-                bi = io.BytesIO(chk.data)
-##                nthings,n1,n2,n3,n4 = readpack(bi, "5I")
-##                for i in range(nthings):
-##                    to(i, ':', *readpack(bi, "I"))
-##                bi.seek(4*nthings, os.SEEK_CUR)
-                o1,o2,u1,nthings = readpack(bi, "4i")
-                qt = readpack(bi, "4i")
-                o3, = readpack(bi, "i")
-                bi.seek(4*nthings, os.SEEK_CUR)
-                
-                for team in range(2):
-                    print('team', team, 'at', hex(bi.tell()))
-                    tmt,tms,tmv = readpack(bi, "3I")
-                    assert tmt == 0x22
-                    #bi.seek(tms, os.SEEK_CUR)
-                    stt,sts,stv = readpack(bi, "3I")
-                    assert stt == 1
-                    ndings,n5 = readpack(bi, "2I")
-                    for i in range(ndings):
-                        readpack(bi, "I")
-                    s = 0
-                    for i in range(320):
-                        print('atom', i, 'at', hex(bi.tell()))
-                        two, = readpack(bi, "i")
-                        print('t:', two, '/ s:', s)
-                        if two != -1: #0xffffffff:
-                            s += two
-                            att, ats, atv = readpack(bi, "3I")
-                            assert att == 0x14
-                            bi.seek(ats, os.SEEK_CUR)
+                tcprint("clones")
+                try:
+                    bi = io.BytesIO(chk.data)
+                    if chk.ver < 2:
+                        nthings,n1,n2,n3,n4 = readpack(bi, "5I")
+                        for i in range(nthings):
+                            tcprint(i, ':', readobjref(bi))
+                        #bi.seek(4*nthings, os.SEEK_CUR)
+                    else:
+                        o1,o2,u1,nthings = readpack(bi, "4i")
+                        qt = readpack(bi, "4i")
+                        o3, = readpack(bi, "i")
+                        bi.seek(4*nthings, os.SEEK_CUR)
+                    
+                    for team in range(1):
+                        tcprint('team', team, 'at', hex(bi.tell()))
+                        tmt,tms,tmv = readpack(bi, "3I")
+                        assert tmt == 0x22
+                        #bi.seek(tms, os.SEEK_CUR)
+                        stt,sts,stv = readpack(bi, "3I")
+                        assert stt == 1
+                        ndings,n5 = readpack(bi, "2I")
+                        tcprint(ndings, 'dings:')
+                        for i in range(ndings):
+                            tcprint(i, ':', readpack(bi, "I"))
+                        s = 0
+                        ff = 0
+                        for i in range(154):
+                            tcprint('atom', i, 'at', hex(bi.tell()))
+                            two, = readpack(bi, "i")
+                            tcprint('t:', two, '/ s:', s)
+                            if two != -1: #0xffffffff:
+                                s += two
+                                att, ats, atv = readpack(bi, "3I")
+                                assert att == 0x14
+                                bi.seek(ats, os.SEEK_CUR)
+                            else:
+                                ff += 1
+                                print('ff:', ff)
+                except Exception as e:
+                    tcprint('!!! EXCEPTION !!!:', type(e), e)
             elif dattype[0] == 11: # Node
                 def objrefstr(objref):
                     if type(objref) == tuple:
@@ -581,9 +589,13 @@ class HomeViewer(wx.Panel):
         s1=wx.StaticText(self, label="Welcome to the XXL Editor!")
         s1.SetFont(wx.Font(12, wx.FONTFAMILY_DECORATIVE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         s2=wx.StaticText(self, label="First, select the game you want to mod/explore:")
-        self.versel = wx.RadioBox(self, choices=['Asterix XXL 1', 'Asterix XXL 2', 'Asterix Olympic Games']) #, label="Select the game you want to mod/explore:")
+        self.versel = wx.RadioBox(self,
+            choices=['Asterix XXL 1', 'Asterix XXL 2', 'Arthur Invisibles/Minimoys', 'Asterix Olympic Games'],
+            majorDimension=2)
+            #, label="Select the game you want to mod/explore:")
         self.versel.SetSelection(kfiles.kver-1)
         bs.AddMany((s1,s2,self.versel))
+        bs.Add(wx.StaticText(self, label="For XXL1 PC and XXL2 PC you will also have to setup\nthe path to a patched GameModule.elb file in Tools > Settings."))
         bs.Add(wx.StaticText(self, label="Then open the file by drag-dropping a KWN file in this window."))
         bs.Add(wx.StaticText(self, label="For more help, click Help > Readme."))
         self.SetSizer(bs)

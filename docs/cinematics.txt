@@ -11,3 +11,6 @@ uint32	numBlocs
 for i in range(numBlocs):
 	ref	@Cinematic bloc (last one should be CKEndDoor)
 ref	@CKStartDoor
+
+Cinematic Bloc
+1E	ref	@CKCinematicScene

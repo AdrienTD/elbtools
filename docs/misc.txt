@@ -1,0 +1,16 @@
+XXL2
+
+Group
+
+Off	Type	Desc
+0C	ref	Next grp
+10	ref	Parent grp
+14	ref	???
+18	ref	CKBundle
+
+Hook
+
+Off	Type	Desc
+08	ref	Next hook
+0C	ref	Next hook (same as 08???)
+14	ref	Node using this hook

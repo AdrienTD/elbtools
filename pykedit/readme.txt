@@ -1,4 +1,4 @@
-XXL Editor Preview 1
+XXL Editor Preview 2
 AdrienTD
 
 With the XXL editor you can explore and modify the KWN files from the
@@ -11,10 +11,13 @@ the time.
 
 Quick start:
 
-- First, select the game version (XXL1, XXL2, OG) of the KWN files
+- First, go to "Tools > Settings" in the menu and set the paths to the
+  GameModule.elb files patched with Ipatix's patcher.
+
+- Then, select the game version (XXL1, XXL2, OG) of the KWN files
   you want to open.
 
-- Then, open a KWN file by clicking "File > Open" or by drap-dropping the
+- Finally, open a KWN file by clicking "File > Open" or by drap-dropping the
   KWN file in the editor's window.
 
 - You should then see the file appear in the tree at the left.
@@ -43,6 +46,12 @@ What the editor can do:
 - View the scene with its nodes and grounds/collision
 - Export grounds/collision to OBJ format
 
+Games supported:
+- Asterix & Obelix XXL1
+- Asterix & Obelix XXL2
+- Arthur and the Invisibles
+- Asterix at the Olympic Games
+
 Current problems/limits:
 - The PC versions of XXL1 and XXL2 have DRM/copy protection which replaces
   the header of the LVL file with random bytes, thus the editor won't be able
@@ -53,6 +62,10 @@ Current problems/limits:
   EXE and then copy it and paste it over the encrypted header in the LVL file.
   Olympic Games, the demo of XXL2, as well as console versions of the games are
   not affected.
+  Preview 2 of the XXL editor fixed this problem by detecting encrypted
+  headers and automatically finding the decrypted version in the game's
+  executable (GameModule.elb). Saving a LVL with encrypted header will
+  keep its encrypted header, so that the game can load it.
 
 - Saving LVL files in XXL1 is OK but not for XXL2 and OG right now, because
   the newer games added new things in the format that I'm still looking at.

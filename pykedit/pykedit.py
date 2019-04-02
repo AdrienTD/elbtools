@@ -1,4 +1,4 @@
-import io, os, struct, wx
+import array, configparser, io, os, struct, wx
 import chkviewers, sceneviewer
 from utils import *
 from objects import *
@@ -8,6 +8,10 @@ from kfiles import *
 if os.name == 'nt':
     import ctypes
     ctypes.windll.user32.SetProcessDPIAware()
+
+config = configparser.ConfigParser()
+config['GameModules'] = {}
+config.read('xxledit_settings.ini')
 
 app = wx.App()
 #locale = wx.Locale(wx.LANGUAGE_ENGLISH)
@@ -26,6 +30,7 @@ def gotohexview(e):
 def setkver1(ev): changekver(1); vermenu.Check(101, kfiles.kver)
 def setkver2(ev): changekver(2); vermenu.Check(102, kfiles.kver)
 def setkver3(ev): changekver(3); vermenu.Check(103, kfiles.kver)
+def setkver4(ev): changekver(4); vermenu.Check(104, kfiles.kver)
 def toggledrm(ev):
     kfiles.khasdrm = not kfiles.khasdrm
     vermenu.Check(109, not kfiles.khasdrm)
@@ -43,7 +48,7 @@ bt2 = wx.RadioButton(chkpanel, label="Hex")
 bt1.Bind(wx.EVT_RADIOBUTTON, gotonormalview)
 bt2.Bind(wx.EVT_RADIOBUTTON, gotohexview)
 btsrow.AddMany((bt1,bt2))
-cvw = chkviewers.HomeViewer([setkver1,setkver2,setkver3], chkpanel)
+cvw = chkviewers.HomeViewer([setkver1,setkver2,setkver3,setkver4], chkpanel)
 cpsiz.Add(cvw, proportion=1, flag=wx.EXPAND)
 cpsiz.Add(btsrow)
 cpsiz.Add(wx.StaticLine())
@@ -67,7 +72,7 @@ def open_kfile(fn):
     global lvl, sec, loc, gam
     name = os.path.basename(fn).upper()
     if name.find('LVL') != -1:
-        lvl = LevelFile(fn, kfiles.kver, hasdrm=kfiles.khasdrm)
+        lvl = LevelFile(fn, kfiles.kver, hasdrm=kfiles.khasdrm, config=config)
     elif name.find('STR') != -1:
         sec = SectorFile(fn, kfiles.kver)
     elif name.find('GAME') != -1:
@@ -248,7 +253,7 @@ def userfindhex(ev):
 
 
 def showRefViewer(ev):
-    rv = wx.Dialog(frm, title="Reference Viewer", size=(960,600))
+    rv = wx.Dialog(frm, title="Reference Decoder", size=(960,600))
     siz = wx.BoxSizer(orient=wx.VERTICAL)
     edt = wx.TextCtrl(rv)
     res = wx.StaticText(rv, label="Type the hex value of the reference.")
@@ -271,7 +276,45 @@ def readmefile(evt):
         ctypes.windll.shell32.ShellExecuteW(0, "open", "readme.txt", 0, 0, 10)
 
 def aboutapp(evt):
-    wx.MessageBox("XXL Editor - Preview 1\nAdrienTD")
+    wx.MessageBox("XXL Editor - Preview 2\nAdrienTD")
+
+class SettingsDialog(wx.Dialog):
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw, title='Settings')
+        self.ws = wx.BoxSizer(orient=wx.VERTICAL)
+        st1 = wx.StaticText(self, label="XXL1 patched GameModule.elb:")
+        self.eb1 = wx.TextCtrl(self, size=wx.Size(300,-1), value=config.get('GameModules', 'xxl1', fallback=''))
+        self.bt1 = wx.Button(self, label="Select")
+        sz1 = wx.BoxSizer(orient=wx.HORIZONTAL)
+        sz1.Add(self.eb1); sz1.Add(self.bt1)
+        sep1 = wx.StaticLine(self)
+        st2 = wx.StaticText(self, label="XXL2 patched GameModule.elb:")
+        self.eb2 = wx.TextCtrl(self, size=wx.Size(300,-1), value=config.get('GameModules', 'xxl2', fallback=''))
+        self.bt2 = wx.Button(self, label="Select")
+        sz2 = wx.BoxSizer(orient=wx.HORIZONTAL)
+        sz2.Add(self.eb2); sz2.Add(self.bt2)
+        sep2 = wx.StaticLine(self)
+        self.ebu = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
+        self.ws.AddMany((st1, sz1, sep1, st2, sz2, sep2, self.ebu))
+        self.SetSizerAndFit(self.ws)
+        self.bt1.Bind(wx.EVT_BUTTON, self.bt1Click)
+        self.bt2.Bind(wx.EVT_BUTTON, self.bt2Click)
+    def bt1Click(self, ev):
+        fn = wx.FileSelector("Select XXL1 patched GameModule.elb", wildcard='GameModule.elb (*.exe;*.elb)|*.exe;*.elb', flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST, parent=self)
+        if not fn.strip(): return
+        self.eb1.SetValue(fn)
+    def bt2Click(self, ev):
+        fn = wx.FileSelector("Select XXL2 patched GameModule.elb", wildcard='GameModule.elb (*.exe;*.elb)|*.exe;*.elb', flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST, parent=self)
+        if not fn.strip(): return
+        self.eb2.SetValue(fn)
+
+def showSettings(ev):
+    d = SettingsDialog(frm)
+    if d.ShowModal() == wx.ID_OK:
+        config['GameModules']['xxl1'] = d.eb1.GetValue()
+        config['GameModules']['xxl2'] = d.eb2.GetValue()
+        with open('xxledit_settings.ini', 'w') as cf:
+            config.write(cf)
 
 menu = wx.Menu()
 menu.Append(901, "Open...")
@@ -290,12 +333,15 @@ toolmenu.Append(3, "Export all geometries to OBJ")
 toolmenu.Append(5, "Export all textures")
 toolmenu.AppendSeparator()
 toolmenu.Append(10, "Find hex")
-toolmenu.Append(11, "Reference viewer")
+toolmenu.Append(11, "Reference decoder")
+toolmenu.AppendSeparator()
+toolmenu.Append(12, "Settings")
 #toolmenu.Append(9, "List shadows")
 vermenu = wx.Menu()
 vermenu.AppendRadioItem(101, "Asterix XXL 1")
 vermenu.AppendRadioItem(102, "Asterix XXL 2")
-vermenu.AppendRadioItem(103, "Asterix Olympic Games")
+vermenu.AppendRadioItem(103, "Arthur Invisibles/Minimoys")
+vermenu.AppendRadioItem(104, "Asterix Olympic Games")
 vermenu.AppendSeparator()
 vermenu.AppendCheckItem(109, "Demo")
 helpmenu = wx.Menu()
@@ -320,10 +366,12 @@ frm.Bind(wx.EVT_MENU, savesec, id=908)
 frm.Bind(wx.EVT_MENU, listshadow, id=9)
 frm.Bind(wx.EVT_MENU, userfindhex, id=10)
 frm.Bind(wx.EVT_MENU, showRefViewer, id=11)
+frm.Bind(wx.EVT_MENU, showSettings, id=12)
 
 frm.Bind(wx.EVT_MENU, setkver1, id=101)
 frm.Bind(wx.EVT_MENU, setkver2, id=102)
 frm.Bind(wx.EVT_MENU, setkver3, id=103)
+frm.Bind(wx.EVT_MENU, setkver4, id=104)
 frm.Bind(wx.EVT_MENU, toggledrm, id=109)
 
 frm.Bind(wx.EVT_MENU, update_chunk, id=201)
@@ -407,7 +455,7 @@ def changeviewer():
         curchk = None
     else:
         #cvw = wx.StaticText(chkpanel, label=":(")
-        cvw = chkviewers.HomeViewer([setkver1,setkver2,setkver3], chkpanel)
+        cvw = chkviewers.HomeViewer([setkver1,setkver2,setkver3,setkver4], chkpanel)
         curchk = None
     cpsiz.Replace(oldcvw, cvw)
     oldcvw.Destroy()
@@ -443,6 +491,8 @@ def treemenu(event):
         m.Append(1001, "Find in GUID references")
         m.Append(1002, "Find out references")
         m.AppendSeparator()
+        m.Append(1005, "Copy hex")
+        m.Append(1006, "Paste hex")
         m.Append(1003, "Export to file...")
         m.Append(1004, "Import from file...")
     elif isinstance(td, PackFile):
@@ -525,6 +575,30 @@ def treeclosefile(event):
     if td == loc: loc = None
     updateChunkTree()
 
+def treecopychunk(event):
+    td = tree.GetItemData(treemenuitem)
+    if wx.TheClipboard.Open():
+        # b = array.array(2 * len(td.data))
+        # for i in range(len(td.data)):
+        #     c = td.data[i]
+        #     b[2*i] = c >> 4 + 0x30
+        #     b[2*i+1] = c & 15 + 0x30
+        b = ''.join(('%02X' % c for c in td.data))
+        wx.TheClipboard.SetData(wx.TextDataObject(b))
+        wx.TheClipboard.Close()
+
+def treepastechunk(event):
+    td = tree.GetItemData(treemenuitem)
+    txtdata = wx.TextDataObject()
+    if wx.TheClipboard.Open():
+        wx.TheClipboard.GetData(txtdata)
+        wx.TheClipboard.Close()
+        hs = txtdata.GetText().replace(' ', '')
+        assert len(hs) & 1 == 0
+        bs = bytes(( int(hs[2*i:2*i+2], base=16) for i in range(len(hs)//2) ))
+        td.data = bs
+        changeviewer()
+        
 tree.Bind(wx.EVT_TREE_SEL_CHANGED, selchunkchanged)
 tree.Bind(wx.EVT_TREE_SEL_CHANGING, selchunkchanging)
 tree.Bind(wx.EVT_TREE_ITEM_MENU, treemenu)
@@ -533,6 +607,8 @@ tree.Bind(wx.EVT_MENU, treefindguid, id=1001)
 tree.Bind(wx.EVT_MENU, treefindrefout, id=1002)
 tree.Bind(wx.EVT_MENU, treeexportchunk, id=1003)
 tree.Bind(wx.EVT_MENU, treeimportchunk, id=1004)
+tree.Bind(wx.EVT_MENU, treecopychunk, id=1005)
+tree.Bind(wx.EVT_MENU, treepastechunk, id=1006)
 tree.Bind(wx.EVT_MENU, treeclosefile, id=2000)
 
 frm.Show()

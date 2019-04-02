@@ -118,7 +118,7 @@ class Ground:
         self.finwalls = []
         if ver >= 2:
             bb, = readpack(bi, "B")
-            if ver >= 3: readobjref(bi) # ?
+            if ver >= 4: readobjref(bi) # ?
             readobjref(bi) # Sector
         numinfwall, = readpack(bi, "H")
         for i in range(numinfwall):
