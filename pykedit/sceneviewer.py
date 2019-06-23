@@ -1,4 +1,5 @@
 import array,io,math,os,struct,time,wx,wx.glcanvas,wx.propgrid
+import cProfile
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.arrays import vbo
@@ -132,8 +133,12 @@ class Ground:
             vi = len(self.verts)
             self.verts.append(tuple(Vector3(*self.verts[w[0]]) + Vector3(0,w[2],0)))
             self.verts.append(tuple(Vector3(*self.verts[w[1]]) + Vector3(0,w[3],0)))
-            self.tris.append((w[1], w[0], vi+0))
-            self.tris.append((w[1], vi+0, vi+1))
+            if w[2] >= 0:
+                self.tris.append((w[1], w[0], vi+0))
+                self.tris.append((w[1], vi+0, vi+1))
+            else:
+                self.tris.append((w[1], vi+0, w[0]))
+                self.tris.append((w[1], vi+1, vi+0))
 
         #tc = Vector3(1,1,1) - Vector3((self.type>>1)&1, (self.type>>3)&1, (self.type>>4)&1)
         tc = Vector3(*tcdict.get(self.type, (0,0,0)))
@@ -251,12 +256,38 @@ class ScenePanel(wx.Panel):
         self.p_posx = self.propgrid.Append(wx.propgrid.FloatProperty('Pos X'))
         self.p_posy = self.propgrid.Append(wx.propgrid.FloatProperty('Pos Y'))
         self.p_posz = self.propgrid.Append(wx.propgrid.FloatProperty('Pos Z'))
-        
+        self.propgrid.Bind(wx.propgrid.EVT_PG_CHANGED, self.OnPropChanged)
+
+        for node in self.nodes.values():
+            node.binmatrix = bytes(array.array('f', node.matrix))
+
+        self.selected_node = None
+
+    def OnPropChanged(self, event):
+        prop = event.GetProperty()
+        if self.selected_node:
+            if prop == self.p_posx:
+                self.selected_node.matrix[12] = event.GetPropertyValue()
+            elif prop == self.p_posy:
+                self.selected_node.matrix[13] = event.GetPropertyValue()
+            elif prop == self.p_posz:
+                self.selected_node.matrix[14] = event.GetPropertyValue()
+            if prop in (self.p_posx, self.p_posy, self.p_posz):
+                self.UpdateObject(self.selected_node)
+                self.viewer.Refresh()
+
+    def UpdateObject(self, node):
+        newdata = bytearray(node.chunk.data)
+        newdata[0:64] = struct.pack('<16f', *node.matrix)
+        node.chunk.data = bytes(newdata)
+        node.binmatrix = bytes(array.array('f', node.matrix))
+    
     def OnSize(self, event):
         self.spl.SetSize(self.GetClientSize())
         
     def OnTree(self, event):
         node = self.nodetree.GetItemData(event.GetItem())
+        self.selected_node = node
         self.viewer.campos = tuple(Vector3(*node.matrix[12:15]) - 5*Vector3(*self.viewer.camdir))
         self.p_type.SetValue(getclname(11, node.clid))
         self.p_id.SetValue(node.id)
@@ -280,6 +311,7 @@ class SceneViewer(wx.glcanvas.GLCanvas):
         self.Bind(wx.EVT_KEY_DOWN, self.OnChar)
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
         self.Bind(wx.EVT_CONTEXT_MENU, self.OnContextMenu)
+        self.Bind(wx.EVT_MENU, self.OnInsertColInScene, id=9001)
 
         keymap = {1001:'L',1002:'N',1003:'G'}
         for i in keymap:
@@ -348,6 +380,13 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             except Exception as e:
                 print('Failed to load texture dictionary:', e)
 
+        self.profiling = False
+
+        self.strfile = None
+        for kk in kfiles:
+            if type(kk) == SectorFile:
+                self.strfile = kk
+
     def OnEraseBackground(self, event):
         pass
     def OnSize(self, event):
@@ -390,6 +429,8 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             self.campos = tuple(self.campos[x] - self.camstr[x] for x in range(3))
         if keycode == wx.WXK_TAB:
             self.Navigate()
+        if keychar == 'P':
+            self.profiling = True
         self.Refresh()
 
     def CmdChangeView(self, event):
@@ -436,6 +477,11 @@ class SceneViewer(wx.glcanvas.GLCanvas):
         glEnable(GL_CULL_FACE)
         
     def OnPaint(self, event):
+        prof = None
+        if self.profiling:
+            self.profiling = False
+            prof = cProfile.Profile()
+            prof.enable()
         c = wx.PaintDC(self)
         if self.IsShown():
             self.SetCurrent(self.context)
@@ -469,7 +515,7 @@ class SceneViewer(wx.glcanvas.GLCanvas):
 
             def drawnode(node):
                 glPushMatrix()
-                glMultMatrixf(node.matrix)
+                glMultMatrixf(node.binmatrix)
                 if node.geochk and (node.geochk in self.geos):
                     c = node.geochk
                     while c and (c in self.geos):
@@ -493,6 +539,10 @@ class SceneViewer(wx.glcanvas.GLCanvas):
             glDisableClientState(GL_COLOR_ARRAY)
 
             self.SwapBuffers()
+        if prof:
+            prof.disable()
+            prof.print_stats()
+            prof.dump_stats('last_drawing_profile.bin')
 
     def OnLeftDown(self, event):
         self.SetFocus()
@@ -506,6 +556,68 @@ class SceneViewer(wx.glcanvas.GLCanvas):
         m.Check(1001, self.wireframe)
         m.Check(1002, self.shownodes)
         m.Check(1003, self.showgrounds)
+        m.Append(9001, "Insert collision model in scene")
         self.PopupMenu(m)
 
+    def OnInsertColInScene(self, evt):
+        geo = Geometry()
+
+        geo.tris = []
+        geo.verts = []
+        geo.colors = []
+        for gr in self.grounds:
+            base = len(geo.verts)
+            geo.tris.extend(((*(t[c]+base for c in (0,2,1)),0) for t in gr.tris))
+            geo.verts.extend(gr.verts)
+            geo.colors.extend(gr.colors)
+        geo.texcrd = [(0,0) for i in range(len(geo.verts))]
+
+        geo.rwver = 0x1803FFFF
+        geo.flags = 0xf
+        geo.num_uvmaps = 1
+        geo.natflags = 0
+        geo.num_tris = len(geo.tris)
+        geo.num_verts = len(geo.verts)
+        geo.sphere = (0,0,0,1000000)
+        geo.haspos = 1
+        geo.hasnorms = 0
+
+        m = Geometry.Material()
+        m.u1 = 0
+        m.color = 0xFF000000
+        m.u2 = 4
+        m.textured = 1
+        m.ambient = 1.0
+        m.specular = 0.0
+        m.diffuse = 1.0
+        m.filter = 6
+        m.uaddress = 1
+        m.vaddress = 1
+        m.flags = 1
+        m.name = b"notexisting"
+        m.maskname = b""
+
+        geo.materials = [m]
+
+        gli = GeometryList()
+        gli.u1 = 0xFFFFFFFF
+        gli.flags = 1
+        gli.geos = [geo]
+
+        kcl = self.strfile.kclasses[(10,2)]
+        chk = KChunk(kcl, kcl.chunks[-1].cid+1, b'', 1)
+
+        #with open('rwcol.dff', 'wb') as f:
+        f = io.BytesIO()
+        gli.save(f, ver=1)
+        writepack(f, "II", chk.getRefInt(), 0)
+        f.seek(0, os.SEEK_SET)
+        chk.data = f.read()
+
+        kcl.chunks.append(chk)
+
+        strroot = self.strfile.kclasses[(11,2)].chunks[0]
+        sra = bytearray(strroot.data)
+        sra[0x4f:0x53] = struct.pack("I", chk.getRefInt())
+        strroot.data = bytes(sra)
 

@@ -14,3 +14,6 @@ Off	Type	Desc
 08	ref	Next hook
 0C	ref	Next hook (same as 08???)
 14	ref	Node using this hook
+Crates
+18	ref	CDynamicGround
+1C	ref	Component

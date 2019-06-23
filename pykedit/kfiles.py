@@ -49,12 +49,15 @@ def getclname(t, i):
         return "<%i,%i>" % (t,i)
 
 class KChunk:
-    def __init__(self,kcl,cid=0,data=b'',ver=kver):
+    def __init__(self,kcl,cid=0,data=b'',ver=kver,offset=0):
         self.kcl = kcl
         self.cid = cid
         self.data = data
-        self.ver = kver
+        self.ver = ver
         self.guid = None
+        self.offset = offset
+    def getRefInt(self):
+        return self.kcl.getRefInt() | (self.cid << 17)
 
 class GameStateChunk(KChunk):
     def __init__(self,kcl,cid,data,ver,off):
@@ -106,6 +109,8 @@ class KClass:
     def __str__(self):
         #return str((self.cltype, self.clid, self.startid, self.rep, len(self.chunks), self.numtotchunks))
         return str(self.__dict__)
+    def getRefInt(self):
+        return self.cltype | (self.clid << 6)
 
 def readque(f):
     return f.read(16)
@@ -234,7 +239,7 @@ class LevelFile(PackFile):
         if self.ver <= 1: self.numz, = dreadpack(kwnfile, "I")
         dhfile = kwnfile
         self.encryptedHeader = None
-        if hasdrm:
+        if hasdrm or ver >= 3:
             self.obssize, = dreadpack(kwnfile, "I")
             self.obsoff = kwnfile.tell()
             # Check if encrypted
@@ -292,7 +297,7 @@ class LevelFile(PackFile):
         # dbg('a', hex(kwnfile.tell()))
         if hasdrm:
             kwnfile.seek(self.obsoff+self.obssize, os.SEEK_SET)
-        kwnfile.seek(4 if (self.ver >= 3) else 8, os.SEEK_CUR)
+        kwnfile.seek(4 if (self.ver >= 4) else 8, os.SEEK_CUR)  # self.ver >= 3 or >= 4 ?
         for i in range(15):
             d = grpord[i]
             nsubchk,nextchkoff = dreadpack(kwnfile, "HI")
@@ -339,7 +344,8 @@ class LevelFile(PackFile):
                     subsub, = dreadpack(kwnfile, "I")
                     assert subsub <= nextsubchkoff
                     dbg('s2', hex(subsub))
-                    kcl.chunks.append(KChunk(kcl,cid,kwnfile.read(subsub - kwnfile.tell()),ver=ver))
+                    chkoff = kwnfile.tell()
+                    kcl.chunks.append(KChunk(kcl,cid,kwnfile.read(subsub - kwnfile.tell()),ver=ver,offset=chkoff))
                     cid += 1
                     nnn += 1
                 dbg(kcl.numchunkshere, nnn)
@@ -431,10 +437,14 @@ class LevelFile(PackFile):
                     if self.ver >= 2:
                         writepack(kfile, "H", len(kc.shadow))
                         nxtshads = []
-                        for sh in kc.shadow:
+                        for sh in range(len(kc.shadow)):
                             nxtshads.append(kfile.tell())
                             writepack(kfile, "I", 0)
-                            kfile.write(sh)
+                            twr = kc.shadow[sh]
+                            if kc.cltype == 12 and kc.clid in (222, 341):
+                                # Fix/rebase some file offsets inside the CKA*GameState shadows
+                                twr = bytes(findAndFixOffsetsInChunk(kc.shadow[sh], kc.shadoff[sh], kfile.tell()))
+                            kfile.write(twr)
                         nxtshads.append(kfile.tell())
                         fixoffsets(kfile, nxtshads, 0)
                     writepack(kfile, "H", kc.startid)
@@ -442,7 +452,11 @@ class LevelFile(PackFile):
                 for chk in kc.chunks:
                     nxtchk.append(kfile.tell())
                     writepack(kfile, "I", 0)
-                    kfile.write(chk.data)
+                    twr = chk.data
+                    if kc.cltype == 12 and kc.clid in (222, 341):
+                        # Fix/rebase some file offsets inside the CKA*GameState chunk
+                        twr = bytes(findAndFixOffsetsInChunk(chk.data, chk.offset, kfile.tell()))
+                    kfile.write(twr)
                 nxtchk.append(kfile.tell())
                 fixoffsets(kfile, nxtchk, 0)
                 
@@ -551,3 +565,12 @@ def getDecryptedHeaderFromEXE(exefn: str, ver: int, lvlnb: int) -> bytes:
     headsize, = struct.unpack('<I', exebytes[headoff:headoff+4])
     print('Head size:', hex(headsize))
     return exebytes[headoff+4:headoff+headsize+4]
+
+def findAndFixOffsetsInChunk(chkbytes, off: int, newoff: int) -> bytearray:
+    lg = len(chkbytes)
+    ba = bytearray(chkbytes)
+    for i in range(len(ba)-3):
+        n, = struct.unpack('I', ba[i:i+4])
+        if i+4 <= n - off <= lg:
+            ba[i:i+4] = struct.pack('I', n - off + newoff)
+    return ba

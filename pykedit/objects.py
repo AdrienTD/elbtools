@@ -111,10 +111,9 @@ def getChunkFromInt(kflist: list, a: int):
     return None
 
 class GeometryList:
-    def __init__(self):
-        pass
-    def __init__(self, f, ver=1, kfiles=()):
-        self.load(f, ver, kfiles)
+    def __init__(self, f=None, ver=1, kfiles=()):
+        if f:
+            self.load(f, ver, kfiles)
     def load(self, f, ver, kfiles):
         self.geos = []
         if ver <= 1:
@@ -138,14 +137,19 @@ class GeometryList:
                 anotherchk = getChunkFromInt(kfiles, *readpack(f, 'I'))
                 anothergl = GeometryList(io.BytesIO(anotherchk.data), ver, kfiles)
                 self.geos = anothergl.geos
+    def save(self, f, ver):
+        if ver <= 1:
+            writepack(f, "II", self.u1, self.flags)
+            #writepack(f, "i", -1) # No next geometry right now
+            for geo in self.geos:
+                geo.save(f)
 
 class Geometry:
     class Material:
         pass
-    def __init__(self):
-        pass
-    def __init__(self, f):
-        self.load(f)
+    def __init__(self, f=None):
+        if f:
+            self.load(f)
     def load(self, f):
         def dbg(*args):
             pass #print(*args)
@@ -156,6 +160,7 @@ class Geometry:
             f.seek(atoms, os.SEEK_CUR)
             atomt,atoms,atomv = readpack(f, "III")
         assert atomt == 0x14
+        self.rwver = atomv
         geoend = f.tell() + atoms
         stt, sts, stv = readpack(f, "III")
         assert stt == 1 and sts == 16
@@ -230,14 +235,15 @@ class Geometry:
                 assert stt == 1 and sts == 4
                 mfl, = readpack(f, "I")
                 m.filter = mfl & 255
-                m.uaddress = (mfl << 8) & 15
-                m.vaddress = (mfl << 12) & 15
+                m.uaddress = (mfl >> 8) & 15
+                m.vaddress = (mfl >> 12) & 15
+                m.flags = mfl >> 16
                 nat, nas, nav = readpack(f, "III")
                 assert nat == 2
-                m.name = f.read(nas).rstrip(b'\0')
+                m.name = f.read(nas).rstrip(b'\0\xDD')
                 nat, nas, nav = readpack(f, "III")
                 assert nat == 2
-                m.maskname = f.read(nas).rstrip(b'\0')
+                m.maskname = f.read(nas).rstrip(b'\0\xDD')
                 dbg(m.name)
             else:
                 m.name = b'NoTexture'
@@ -249,11 +255,23 @@ class Geometry:
         self.valid = True
 
     def save(self, f):
+        headstack = []
+        def pushhs():
+            headstack.append(f.tell())
+        def pophs():
+            p = headstack.pop()
+            o = f.tell()
+            f.seek(p-8, os.SEEK_SET)
+            writepack(f, "I", o-p)
+            f.seek(o, os.SEEK_SET)
         writepack(f, "III", 0x14, 0, self.rwver)
+        pushhs()
         writepack(f, "III", 1, 16, self.rwver)
-        writepack(f, "4I", 0,0,0,0)
+        writepack(f, "4I", 0,0,5,0)
         writepack(f, "III", 0xF, 0, self.rwver)
+        pushhs()
         writepack(f, "III", 1, 0, self.rwver)
+        pushhs()
         writepack(f, "HBB", self.flags, self.num_uvmaps, self.natflags)
         writepack(f, "II", self.num_tris, self.num_verts)
         writepack(f, "I", 1) # Num morph targets
@@ -271,19 +289,43 @@ class Geometry:
         if self.flags & 0x10:
             for n in self.normals:
                 writepack(f, "fff", *n)
+        pophs()
 
         writepack(f, "III", 8, 0, self.rwver)
-        writepack(f, "III", 1, 0, self.rwver)
+        pushhs()
+        writepack(f, "III", 1, 8, self.rwver)
         writepack(f, "I", len(self.materials))
         if len(self.materials) > 0:
-            writepack(f, "I", 0) # ??
+            writepack(f, "i", -1) # ??
         for m in self.materials:
             writepack(f, "III", 7, 0, self.rwver)
+            pushhs()
             writepack(f, "III", 1, 28, self.rwver)
             writepack(f, "IIIIfff", m.u1,m.color,m.u2,m.textured,m.ambient,m.specular,m.diffuse)
-            if m.textures:
+            if m.textured:
                 writepack(f, "III", 6, 0, self.rwver)
+                pushhs()
                 writepack(f, "III", 1, 4, self.rwver)
+                mfl = m.filter | (m.uaddress << 8) | (m.vaddress << 12) | (m.flags << 16)
+                writepack(f, "I", mfl)
+                for nam in (m.name, m.maskname):
+                    ln = (len(nam)//4)*4 + 4
+                    writepack(f, "III", 2, ln, self.rwver)
+                    f.write(nam.ljust(ln, b'\x00'))
+                writepack(f, "III", 3, 0, self.rwver)
+                pophs()
+            writepack(f, "III", 3, 0, self.rwver)
+            pophs()
+
+        pophs() #End material list
+
+        writepack(f, "III", 3, 0, self.rwver)
+        pophs() #End geometry
+
+        writepack(f, "III", 3, 0, self.rwver)
+        pophs() #End atomic
+
+        print(len(headstack))
 
     def exportToOBJ(self, obj, base=1, normbase=1):
         for v in self.verts:
@@ -299,7 +341,7 @@ class Geometry:
                 obj.write('usemtl %s\n' % tex.decode(encoding='latin_1'))
                 curtex = tex
             obj.write('f')
-            for i in range(3):
+            for i in (0,2,1):
                 if self.normals:
                     obj.write(' %i/%i/%i' % (t[i]+base, t[i]+base, t[i]+normbase))
                 else:

@@ -115,7 +115,7 @@ class TexDictView(wx.Panel):
         newimg = wx.Image(fn)
         tex = Texture()
         tex.loadFromWxImage(newimg)
-        tex.name = os.path.basename(fn).encode(encoding='latin_1')[:31]
+        tex.name = os.path.splitext(os.path.basename(fn))[0].encode(encoding='latin_1')[:31]
         tex.rwver = self.textures[0].rwver
         tex.v = (2,1,1)
         self.modified = True
@@ -141,6 +141,7 @@ class GeometryView(wx.glcanvas.GLCanvas):
             
         self.geolists = []
         c = chk
+        self.chk = chk
         while c:
             gl = GeometryList(io.BytesIO(c.data), ver=c.ver, kfiles=files)
             self.geolists.append(gl)
@@ -166,6 +167,7 @@ class GeometryView(wx.glcanvas.GLCanvas):
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
         self.Bind(wx.EVT_CONTEXT_MENU, self.OnContextMenu)
         self.Bind(wx.EVT_MENU, self.CmdSaveOBJ, id=1000)
+        self.Bind(wx.EVT_MENU, self.CmdTestSaveRw, id=9001)
 
         for i in (1001,1002,1003,1004):
             self.Bind(wx.EVT_MENU, self.CmdChangeView, id=i)
@@ -339,6 +341,8 @@ class GeometryView(wx.glcanvas.GLCanvas):
         m.Append(1000, "Save as OBJ...")
         m.Check(1001, self.wireframe)
         m.Check(1002, self.shownextgeos)
+        m.AppendSeparator()
+        m.Append(9001, "Test resaving in rw format")
         self.PopupMenu(m)
 
     def CmdChangeView(self, evt):
@@ -373,7 +377,12 @@ class GeometryView(wx.glcanvas.GLCanvas):
             mtlfile.write('newmtl NoTexture\n')
             for mat in matlist:
                 name = mat.name.decode(encoding='latin_1')
-                mtlfile.write('newmtl %s\nmap_Kd textures/%s\n' % (name, name+'.png'))
+                mtlfile.write('newmtl %s\nKa 1.0 1.0 1.0\nKd 1.0 1.0 1.0\nmap_Kd textures/%s\n' % (name, name+'.png'))
+
+    def CmdTestSaveRw(self, evt):
+        with open('test.dff', 'wb') as f:
+            self.geolists[0].save(f, self.chk.ver)
+            writepack(f, "II", self.chk.getRefInt(), 0)
 
 class MoreSpecificInfoView(wx.TextCtrl):
     def __init__(self, chk, *args, **kw):
@@ -452,9 +461,17 @@ class MoreSpecificInfoView(wx.TextCtrl):
                             tcprint('t:', two, '/ s:', s)
                             if two != -1: #0xffffffff:
                                 s += two
+                                #att, ats, atv = readpack(bi, "3I")
+                                #assert att == 0x14
+                                #bi.seek(ats, os.SEEK_CUR)
                                 att, ats, atv = readpack(bi, "3I")
-                                assert att == 0x14
-                                bi.seek(ats, os.SEEK_CUR)
+                                nxt = bi.tell() + ats
+                                bi.seek(-12, os.SEEK_CUR)
+                                try:
+                                    geo = Geometry(bi)
+                                except Exception as e:
+                                    tcprint('Geofail')
+                                bi.seek(nxt, os.SEEK_SET)
                             else:
                                 ff += 1
                                 print('ff:', ff)
@@ -482,6 +499,39 @@ class MoreSpecificInfoView(wx.TextCtrl):
                     txt.write('\nAnother Object: ' + objrefstr(readobjref(bi)))
                 except:
                     txt.write('\nThat\'s all.')
+            elif dattype == (13, 8): #CAnimationManager
+                try:
+                    bi = io.BytesIO(chk.data)
+                    numAnim, = readpack(bi, 'I')
+                    tcprint('Num animations:', numAnim)
+                    smv = 999999999; sm = -1
+                    for i in range(numAnim):
+                        rwt,rws,rwv = readpack(bi, '3I')
+                        assert rwt == 0x1B
+                        if rws < smv:
+                            smv = rws
+                            sm = i
+                        animver, animtype, framecount, flags, duration = readpack(bi, 'IIIIf')
+                        tcprint('---- Anim', i, '----')
+                        tcprint('Size:', rws)
+                        tcprint('Version:', animver)
+                        tcprint('Type ID:', animtype)
+                        tcprint('Frame count:', framecount)
+                        tcprint('Flags:', flags)
+                        tcprint('Duration:', duration)
+                        for f in range(framecount):
+                            tcprint('* Frame', f)
+                            tcprint('  A:', *readpack(bi, 'I'))
+                            tcprint('  B:', *readpack(bi, '7H'))
+                            tcprint('  C:', *readpack(bi, 'I'))
+                        tcprint('Bounding box:', readpack(bi, '6f'))
+                        tcprint('D:', *readpack(bi, 'I'))
+                        tcprint('E:', *readpack(bi, '3I'))
+                        #bi.seek(rws+16-20, os.SEEK_CUR)
+                    tcprint('Smallest anim:', sm)
+                    tcprint('Ended at', hex(bi.tell()))
+                except Exception as e:
+                    tcprint('!!! EXCEPTION !!!:', type(e), e)
         elif type(chk) == KClass:
             for i in chk.__dict__:
                 print(i, ':', chk.__dict__[i], file=txt)

@@ -440,7 +440,7 @@ def changeviewer():
                 cvw = chkviewers.TexDictView(td, chkpanel)
             elif dattype[0] == 10:
                 cvw = chkviewers.GeometryView(td, [lvl,sec,loc], chkpanel)
-            elif dtname == "CGround" or dtname == "CDynamicGround" or dtname == "CCloneManager" or dattype[0] == 11:
+            elif dtname == "CGround" or dtname == "CDynamicGround" or dtname == "CCloneManager" or dattype[0] == 11 or dtname == "CAnimationManager":
                 cvw = chkviewers.MoreSpecificInfoView(td, chkpanel)
             elif dtname == "CLocManager":
                 cvw = chkviewers.LocTextViewer(td, chkpanel)
