@@ -194,8 +194,10 @@ def exporttextures(event):
     dirname = wx.DirSelector(message="Select the destination directory for the extracted textures")
     if not dirname.strip(): return
     #os.makedirs(dirname, exist_ok=True)
-    #mtl = open('geom.mtl', 'w')
-    #mtl.write('newmtl NoTexture\n')
+    genMtl = True
+    if genMtl:
+        mtl = open('textures.mtl', 'w')
+        mtl.write('newmtl NoTexture\n')
     for kk in (lvl,sec):
         if kk == None: continue
         if not ((9,2) in kk.kclasses): continue
@@ -205,8 +207,10 @@ def exporttextures(event):
             img = tex.convertToWxImage()
             name = tex.name.decode(encoding='latin_1')
             img.SaveFile(dirname + '/' + name + '.png')
-            #mtl.write('newmtl %s\nmap_Kd textures/%s\n' % (name, name+'.png'))
-    #mtl.close()
+            if genMtl:
+                mtl.write('newmtl %s\nmap_Kd textures/%s\n' % (name, name+'.png'))
+    if genMtl:
+        mtl.close()
 
 def showscene(ev):
     sceneframe = wx.Frame(None, title="Scene Viewer", size=(960,600))
@@ -316,6 +320,101 @@ def showSettings(ev):
         with open('xxledit_settings.ini', 'w') as cf:
             config.write(cf)
 
+def oldimportStrGeo(ev):
+    objfn = wx.FileSelector("Import sector geometry from OBJ", wildcard="Model file (*.dff;*.obj)|*.dff;*.obj|OBJ file (*.obj)|*.obj|DFF file (*.dff)|*.dff", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
+    if not objfn.strip(): return
+    #importStrGrounds(ev)
+    #objtotest = "C:\\Users\\Adrien\\Downloads\\WF\\WF.obj"
+    #objtotest = "C:\\Users\\Adrien\\Downloads\\wf_for_xxl\\wft2.obj"
+    print(objfn)
+    if objfn.lower().endswith('.obj'):
+        geo = Geometry.importFromOBJ(objfn)
+    else:
+        geo = Geometry.importFromDFF(objfn)
+    print('Import result:', geo)
+    # regeo = None
+    # with open("objtorw.dff", "wb") as f:
+    #     geo[0].save(f)
+    # with open("objtorw.dff", "rb") as f:
+    #     regeo = Geometry(f)
+    # print('done')
+
+    # Get Geometry reference in CSGSectorRoot of STR file
+    ver = sec.kclasses[(11,2)].chunks[0].ver
+    ngm = 0x51 if ver >= 2 else 0x4F    # Node's geometry reference address
+    gnm = 0x0C if ver >= 2 else 0       # Geometry's next geo address
+    ghs = 0x19 if ver >= 2 else 8       # Geometry's header size
+    nextgeoref, = struct.unpack('I', sec.kclasses[(11,2)].chunks[0].data[ngm:ngm+4])
+
+    gn = 0
+    while nextgeoref != 0xFFFFFFFF:
+        if gn >= len(geo):
+            break
+        geochk = getChunkFromInt((sec,), nextgeoref)
+        nextgeoref, = struct.unpack('I', geochk.data[gnm:gnm+4])
+        bb = io.BytesIO()
+        bb.write(geochk.data[0:ghs])
+        geo[gn].save(bb)
+        if ver <= 1:
+            bb.write(geochk.data[-8:])
+        bb.seek(os.SEEK_SET, 0)
+        geochk.data = bb.read()
+        gn += 1
+
+    print('gn:', gn, '/', len(geo))
+
+def importStrGeo(ev):
+    objfn = wx.FileSelector("Import sector geometry from OBJ", wildcard="Model file (*.dff;*.obj)|*.dff;*.obj|OBJ file (*.obj)|*.obj|DFF file (*.dff)|*.dff", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
+    if not objfn.strip(): return
+    if objfn.lower().endswith('.obj'):
+        geos = Geometry.importFromOBJ(objfn)
+    else:
+        geos = Geometry.importFromDFF(objfn)
+
+    geochunks = []
+    kcl = sec.kclasses[(10,2)]
+    for geo in geos:
+        chk = KChunk(kcl, kcl.chunks[-1].cid+1, b'', 1)
+        geochunks.append(chk)
+        kcl.chunks.append(chk)
+
+    for i in range(len(geochunks)):
+        gli = GeometryList()
+        gli.u1 = geochunks[i+1].getRefInt() if (i < len(geochunks)-1) else 0xFFFFFFFF
+        gli.flags = 0x12
+        gli.geos = [geos[i]]
+        f = io.BytesIO()
+        gli.save(f, ver=1)
+        writepack(f, "II", geochunks[i].getRefInt(), 6)
+        f.seek(0, os.SEEK_SET)
+        geochunks[i].data = f.read()
+
+    strroot = sec.kclasses[(11,2)].chunks[0]
+    sra = bytearray(strroot.data)
+    sra[0x4f:0x53] = struct.pack("I", geochunks[0].getRefInt())
+    strroot.data = bytes(sra)
+
+def importStrGrounds(ev):
+    #objfn = "C:\\Users\\Adrien\\Downloads\\wf_for_xxl\\wft2_colli.obj"
+    objfn = wx.FileSelector("Import sector collision from OBJ", wildcard="OBJ file (*.obj)|*.obj", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
+    if not objfn.strip(): return
+    gnd = Ground()
+    gnd.sectorobj = (12,4,sec.strnum)
+    with open(objfn, 'r') as objfile:
+        for ln in objfile:
+            words = ln.split()
+            print(words)
+            if len(words) <= 0:
+                continue
+            if words[0] == 'v':
+                gnd.verts.append( tuple(float(k) for k in words[1:4]) )
+            elif words[0] == 'f':
+                gnd.tris.append( tuple( int(t.split('/')[0])-1 for t in words[1:4] ) )
+    bi = io.BytesIO()
+    gnd.save(bi, sec.ver)
+    bi.seek(os.SEEK_SET, 0)
+    sec.kclasses[(12,18)].chunks[-1].data = bi.read()
+
 menu = wx.Menu()
 menu.Append(901, "Open...")
 menu.AppendSeparator()
@@ -331,6 +430,9 @@ toolmenu.Append(2, "Export collision to OBJ")
 toolmenu.Append(3, "Export all geometries to OBJ")
 #toolmenu.Append(4, "Export collision of whole Rome")
 toolmenu.Append(5, "Export all textures")
+toolmenu.AppendSeparator()
+toolmenu.Append(13, "Import sector geometry from OBJ")
+toolmenu.Append(14, "Import sector collision from OBJ")
 toolmenu.AppendSeparator()
 toolmenu.Append(10, "Find hex")
 toolmenu.Append(11, "Reference decoder")
@@ -367,6 +469,8 @@ frm.Bind(wx.EVT_MENU, listshadow, id=9)
 frm.Bind(wx.EVT_MENU, userfindhex, id=10)
 frm.Bind(wx.EVT_MENU, showRefViewer, id=11)
 frm.Bind(wx.EVT_MENU, showSettings, id=12)
+frm.Bind(wx.EVT_MENU, importStrGeo, id=13)
+frm.Bind(wx.EVT_MENU, importStrGrounds, id=14)
 
 frm.Bind(wx.EVT_MENU, setkver1, id=101)
 frm.Bind(wx.EVT_MENU, setkver2, id=102)
@@ -440,7 +544,7 @@ def changeviewer():
                 cvw = chkviewers.TexDictView(td, chkpanel)
             elif dattype[0] == 10:
                 cvw = chkviewers.GeometryView(td, [lvl,sec,loc], chkpanel)
-            elif dtname == "CGround" or dtname == "CDynamicGround" or dtname == "CCloneManager" or dattype[0] == 11 or dtname == "CAnimationManager":
+            elif dtname in  ("CGround", "CDynamicGround", "CCloneManager", "CAnimationManager", "CKBeaconKluster") or dattype[0] == 11:
                 cvw = chkviewers.MoreSpecificInfoView(td, chkpanel)
             elif dtname == "CLocManager":
                 cvw = chkviewers.LocTextViewer(td, chkpanel)

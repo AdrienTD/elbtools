@@ -19,7 +19,7 @@ def changekver(newkver):
     kver = newkver
     if kver >= 2: grpord = [9,0,1,2,3,4,5,6,7,8,10,11,12,13,14]
     else:         grpord = [0,9,1,2,3,4,5,6,7,8,10,11,12,13,14]
-    cfilenames = [None, 'classes_ax1.txt', 'classes_ax2demo.txt', 'classes_aog.txt', 'classes_aog.txt']
+    cfilenames = [None, 'classes_ax1.txt', 'classes_ax2.txt', 'classes_aog.txt', 'classes_aog.txt']
     cnfile = open(cfilenames[kver], 'r')
     cnfile.readline()
     clname = {}

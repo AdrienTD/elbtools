@@ -7,14 +7,14 @@ from objects import *
 from kfiles import *
 import kfiles
 
-def readobjref(kwn):
-    i, = readpack(kwn, 'I')
-    if i == 0xFFFFFFFF:
-        return None
-    elif i == 0xFFFFFFFD:
-        return kwn.read(16)
-    else:
-        return (i & 63, (i>>6) & 2047, i >> 17)
+# def readobjref(kwn):
+#     i, = readpack(kwn, 'I')
+#     if i == 0xFFFFFFFF:
+#         return None
+#     elif i == 0xFFFFFFFD:
+#         return kwn.read(16)
+#     else:
+#         return (i & 63, (i>>6) & 2047, i >> 17)
 
 class UnknownView(wx.TextCtrl):
     def __init__(self, chk, *args, **kw):
@@ -93,6 +93,8 @@ class TexDictView(wx.Panel):
         if not fn.strip():
             return
         newimg = wx.Image(fn)
+        if not newimg.HasAlpha():
+            newimg.InitAlpha()
         tex = self.textures[self.lb.GetSelection()]
         self.modified = True
         tex.loadFromWxImage(newimg)
@@ -109,18 +111,27 @@ class TexDictView(wx.Panel):
         self.update(self.chk)
 
     def inserttex(self, event):
-        fn = wx.FileSelector("Insert texture", wildcard="Image file " + wx.Image.GetImageExtWildcard(), flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
-        if not fn.strip():
+        #fn = wx.FileSelector("Insert texture", wildcard="Image file " + wx.Image.GetImageExtWildcard(), flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
+        # if not fn.strip():
+        #     return
+        fdlg = wx.FileDialog(self, "Insert texture", wildcard="Image file " + wx.Image.GetImageExtWildcard(), style=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST|wx.FD_MULTIPLE)
+        if fdlg.ShowModal() == wx.ID_CANCEL:
             return
-        newimg = wx.Image(fn)
-        tex = Texture()
-        tex.loadFromWxImage(newimg)
-        tex.name = os.path.splitext(os.path.basename(fn))[0].encode(encoding='latin_1')[:31]
-        tex.rwver = self.textures[0].rwver
-        tex.v = (2,1,1)
-        self.modified = True
-        self.textures.append(tex)
-        self.lb.Append(tex.name.decode(encoding='latin_1'))
+        for fn in fdlg.GetPaths():
+            newimg = wx.Image(fn)
+            if not newimg.HasAlpha():
+                newimg.InitAlpha()
+            tex = Texture()
+            tex.loadFromWxImage(newimg)
+            tex.name = os.path.splitext(os.path.basename(fn))[0].encode(encoding='latin_1')[:31]
+            if self.textures:
+                tex.rwver = self.textures[0].rwver
+            else:
+                tex.rwver = 0x1803FFFF
+            tex.v = (2,1,1)
+            self.modified = True
+            self.textures.append(tex)
+            self.lb.Append(tex.name.decode(encoding='latin_1'))
         
 
 class GeometryView(wx.glcanvas.GLCanvas):
@@ -392,43 +403,52 @@ class MoreSpecificInfoView(wx.TextCtrl):
             print(*args, file=txt)
         if type(chk) == KChunk:
             dattype = (chk.kcl.cltype,chk.kcl.clid)
+            def objrefstr(objref):
+                if type(objref) == tuple:
+                    return getclname(objref[0], objref[1]) + ', ' + str(objref[2])
+                else:
+                    return str(objref)
             if dattype == (12,18) or dattype == (12,19): # CGround or CDynamicGround
                 txt.write("CGround!\n\n")
                 bi = io.BytesIO(chk.data)
-                numa,num_tris,num_verts = readpack(bi, "IHH")
-                tcprint('numa =', numa)
-                tcprint('num_tris =', num_tris)
-                tcprint('num_verts =', num_verts)
-                # tcprint('Indices:')
-                # for i in range(num_tris):
-                #     tcprint(readpack(bi, "HHH"))
-                # tcprint('Vertices:')
-                # for i in range(num_verts):
-                #     tcprint(readpack(bi, "fff"))
-                bi.seek(6*num_tris + 12*num_verts, os.SEEK_CUR)
-                tcprint('Misc:')
-                tcprint('off', hex(bi.tell()))
-                tcprint(readpack(bi, "6f"))
-                tcprint('off', hex(bi.tell()))
-                tcprint(readpack(bi, "HH"))
-                if chk.ver >= 2:
-                    tcprint('Neo byte:', readpack(bi, "B"))
-                    if chk.ver >= 3:
-                        tcprint('Invalid ref? :', readobjref(bi))
-                    tcprint('Sector :', readobjref(bi))
-                numy, = readpack(bi, "H")
-                tcprint('Infinite walls:', numy)
-                for i in range(numy):
-                    tcprint(readpack(bi, "HH"))
-                numz, = readpack(bi, "H")
-                tcprint('Finite walls:', numz)
-                for i in range(numz):
-                    tcprint(readpack(bi, "HHff"))
-                tcprint(readpack(bi, "ff"))
-                tcprint('off', hex(bi.tell()))
+                # numa,num_tris,num_verts = readpack(bi, "IHH")
+                # tcprint('numa =', numa)
+                # tcprint('num_tris =', num_tris)
+                # tcprint('num_verts =', num_verts)
+                # # tcprint('Indices:')
+                # # for i in range(num_tris):
+                # #     tcprint(readpack(bi, "HHH"))
+                # # tcprint('Vertices:')
+                # # for i in range(num_verts):
+                # #     tcprint(readpack(bi, "fff"))
+                # bi.seek(6*num_tris + 12*num_verts, os.SEEK_CUR)
+                # tcprint('Misc:')
+                # tcprint('off', hex(bi.tell()))
+                # tcprint(readpack(bi, "6f"))
+                # tcprint('off', hex(bi.tell()))
+                # tcprint(readpack(bi, "HH"))
+                # if chk.ver >= 2:
+                #     tcprint('Neo byte:', readpack(bi, "B"))
+                #     if chk.ver >= 3:
+                #         tcprint('Invalid ref? :', readobjref(bi))
+                #     tcprint('Sector :', readobjref(bi))
+                # numy, = readpack(bi, "H")
+                # tcprint('Infinite walls:', numy)
+                # for i in range(numy):
+                #     tcprint(readpack(bi, "HH"))
+                # numz, = readpack(bi, "H")
+                # tcprint('Finite walls:', numz)
+                # for i in range(numz):
+                #     tcprint(readpack(bi, "HHff"))
+                # tcprint(readpack(bi, "ff"))
+                # tcprint('off', hex(bi.tell()))
+                gr = Ground(bi, chk.ver)
+                for i in gr.__dict__.items():
+                    tcprint(i[0], ':', i[1])
                 
             elif dattype == (13,3): # CCloneManager
                 tcprint("clones")
+                objfile = open('clones.obj', 'w')
                 try:
                     bi = io.BytesIO(chk.data)
                     if chk.ver < 2:
@@ -442,6 +462,7 @@ class MoreSpecificInfoView(wx.TextCtrl):
                         o3, = readpack(bi, "i")
                         bi.seek(4*nthings, os.SEEK_CUR)
                     
+                    objbases = (1,1)
                     for team in range(1):
                         tcprint('team', team, 'at', hex(bi.tell()))
                         tmt,tms,tmv = readpack(bi, "3I")
@@ -455,7 +476,7 @@ class MoreSpecificInfoView(wx.TextCtrl):
                             tcprint(i, ':', readpack(bi, "I"))
                         s = 0
                         ff = 0
-                        for i in range(154):
+                        for i in range(300): #154
                             tcprint('atom', i, 'at', hex(bi.tell()))
                             two, = readpack(bi, "i")
                             tcprint('t:', two, '/ s:', s)
@@ -469,6 +490,8 @@ class MoreSpecificInfoView(wx.TextCtrl):
                                 bi.seek(-12, os.SEEK_CUR)
                                 try:
                                     geo = Geometry(bi)
+                                    objfile.write('o Clone_%04i\n' % i)
+                                    objbases = geo.exportToOBJ(objfile, *objbases)
                                 except Exception as e:
                                     tcprint('Geofail')
                                 bi.seek(nxt, os.SEEK_SET)
@@ -477,12 +500,8 @@ class MoreSpecificInfoView(wx.TextCtrl):
                                 print('ff:', ff)
                 except Exception as e:
                     tcprint('!!! EXCEPTION !!!:', type(e), e)
+                objfile.close()
             elif dattype[0] == 11: # Node
-                def objrefstr(objref):
-                    if type(objref) == tuple:
-                        return getclname(objref[0], objref[1]) + ', ' + str(objref[2])
-                    else:
-                        return str(objref)
                 bi = io.BytesIO(chk.data)
                 mtx = readpack(bi, '16f')
                 parent = readobjref(bi)
@@ -532,6 +551,33 @@ class MoreSpecificInfoView(wx.TextCtrl):
                     tcprint('Ended at', hex(bi.tell()))
                 except Exception as e:
                     tcprint('!!! EXCEPTION !!!:', type(e), e)
+            elif dattype == (12, 73): #CKBeaconKluster
+                try:
+                    bi = io.BytesIO(chk.data)
+                    nextbk, = readpack(bi, 'I')
+                    hfloats = readpack(bi, '5f')
+                    numBings,numDings = readpack(bi, 'HH')
+                    tcprint('Header floats:', hfloats)
+                    tcprint('Num Bings:', numBings)
+                    tcprint('Num Dings:', numDings)
+                    for i in range(numBings):
+                        active, = readpack(bi, 'B')
+                        tcprint('----- Bing %i %s -----' % (i, 'A' if active else 'I'))
+                        if active == 1:
+                            pk = readpack(bi, 'IHHHH')
+                            ali, h1, h2, h3, h4 = pk
+                            tcprint(pk)
+                            if ali != 0:
+                                ref = readobjref(bi)
+                                smth, = readpack(bi, 'I')
+                                tcprint(objrefstr(ref))
+                                for j in range(ali):
+                                    pp = readpack(bi, '3hh')
+                                    tcprint(pp)
+                                    #tcprint(*(n*0.1 for n in pp))
+                except Exception as e:
+                    tcprint('!!! EXCEPTION !!!:', type(e), e)
+
         elif type(chk) == KClass:
             for i in chk.__dict__:
                 print(i, ':', chk.__dict__[i], file=txt)

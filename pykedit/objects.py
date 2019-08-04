@@ -97,18 +97,19 @@ class Texture:
             y += 3
             a += 1
 
-def getChunkFromInt(kflist: list, a: int):
-    cltype,clid,chkid = a & 63, (a >> 6) & 2047, a >> 17
-    #print('gcfi:', cltype,clid,chkid)
+def getChunkFrom3IDs(kflist: list, cltype: int, clid: int, chkid: int):
     for kf in kflist:
         if kf == None: continue
         cti = (cltype, clid)
         if cti not in kf.kclasses: continue
         for chk in kf.kclasses[cti].chunks:
             if chk.cid == chkid:
-                #print('Found')
                 return chk
     return None
+
+def getChunkFromInt(kflist: list, a: int):
+    cltype,clid,chkid = a & 63, (a >> 6) & 2047, a >> 17
+    return getChunkFrom3IDs(kflist, cltype, clid, chkid)
 
 class GeometryList:
     def __init__(self, f=None, ver=1, kfiles=()):
@@ -159,14 +160,17 @@ class Geometry:
         if atomt == 0xE:
             f.seek(atoms, os.SEEK_CUR)
             atomt,atoms,atomv = readpack(f, "III")
-        assert atomt == 0x14
-        self.rwver = atomv
-        geoend = f.tell() + atoms
-        stt, sts, stv = readpack(f, "III")
-        assert stt == 1 and sts == 16
-        av = readpack(f, "4I")
+        if atomt == 0x14:
+            geoend = f.tell() + atoms
+            stt, sts, stv = readpack(f, "III")
+            assert stt == 1 and sts == 16
+            av = readpack(f, "4I")
+            gmt, gms, gmv = readpack(f, "III")
+        else:
+            geoend = f.tell() + atoms
+            gmt, gms, gmv = atomt, atoms, atomv
         
-        gmt, gms, gmv = readpack(f, "III")
+        self.rwver = gmv
         assert gmt == 0xF
         stt, sts, stv = readpack(f, "III")
         assert stt == 1
@@ -175,15 +179,24 @@ class Geometry:
         self.num_morph_targets, = readpack(f, "I")
         dbg('num_morph_targets:', self.num_morph_targets)
         assert self.num_morph_targets == 1
+
         self.colors = []
         if self.flags & 8:
             for i in range(self.num_verts):
                 self.colors.append(readpack(f, "4B"))
-        self.texcrd = []
-        for i in range(self.num_verts):
-            self.texcrd.append(readpack(f, "ff"))
+
         dbg(self.num_uvmaps)
-        f.seek(8*self.num_verts*(self.num_uvmaps-1), os.SEEK_CUR)
+        if self.num_uvmaps == 0:
+            if self.flags & 4:
+                self.num_uvmaps = 1
+            if self.flags & 0x80:
+                self.num_uvmaps = 2
+        self.texcrd = []
+        if self.num_uvmaps > 0:
+            for i in range(self.num_verts):
+                self.texcrd.append(readpack(f, "ff"))
+            f.seek(8*self.num_verts*(self.num_uvmaps-1), os.SEEK_CUR)
+
         self.tris = []
         for i in range(self.num_tris):
             t = readpack(f, "4H")
@@ -273,7 +286,8 @@ class Geometry:
         writepack(f, "III", 1, 0, self.rwver)
         pushhs()
         writepack(f, "HBB", self.flags, self.num_uvmaps, self.natflags)
-        writepack(f, "II", self.num_tris, self.num_verts)
+        #writepack(f, "II", self.num_tris, self.num_verts)
+        writepack(f, "II", len(self.tris), len(self.verts))
         writepack(f, "I", 1) # Num morph targets
         if self.flags & 8:
             for c in self.colors:
@@ -363,6 +377,120 @@ class Geometry:
 ##        xf = E.float_array(' '.join(epverts))
 ##        print(etree.tostring(xf))
 
+    @staticmethod
+    def importFromOBJ(objfn: str) -> 'Geometry':
+        class ObjMat:
+            def __init__(self, name):
+                self.name = name
+                #self.texfn = texfn
+
+        objverts = []
+        objtcrds = []
+        objmats = {}
+        objgeos = []
+        curgeo = None
+        curgeonum = -1
+        with open(objfn, 'r') as objfile:
+            for ln in objfile:
+                words = ln.split()
+                #print(words)
+                if len(words) <= 0:
+                    continue
+                if words[0] == 'v':
+                    objverts.append( tuple(float(k) for k in words[1:4]) )
+                elif words[0] == 'vt':
+                    objtcrds.append( (float(words[1]), 1-float(words[2])) )
+                elif words[0] == 'mtllib':
+                    with open(os.path.dirname(objfn) + '/' + words[1], 'r') as mtlfile:
+                        curmat = None
+                        for ml in mtlfile:
+                            mords = ml.split()
+                            if len(mords) <= 0:
+                                continue
+                            if mords[0] == 'newmtl':
+                                curmat = ObjMat(mords[1])
+                                objmats[mords[1]] = curmat
+                                curmat.texfn = "NO_TEXTURE_PLEASE"
+                            elif mords[0] == 'map_Kd':
+                                # TODO: Consider white space chars!!!
+                                curmat.texfn = os.path.splitext(os.path.basename(mords[-1]))[0]
+                            elif mords[0] == 'map_Ka':
+                                if curmat.texfn == "NO_TEXTURE_PLEASE":
+                                    curmat.texfn = os.path.splitext(os.path.basename(mords[-1]))[0]
+
+                elif words[0] == 'usemtl':
+                    curgeo = Geometry()
+                    curgeomat = objmats[words[1]]
+                    objgeos.append(curgeo)
+                    curgeonum += 1
+
+                    curgeo.rwver = 0x1803FFFF
+                    curgeo.flags = 0xf
+                    curgeo.num_uvmaps = 1
+                    curgeo.natflags = 0
+                    #geo.num_tris = len(geo.tris)
+                    #geo.num_verts = len(geo.verts)
+                    curgeo.sphere = (0,0,0,1000000)
+                    curgeo.haspos = 1
+                    curgeo.hasnorms = 0
+
+                    m = Geometry.Material()
+                    m.u1 = 0
+                    m.color = 0xFF000000
+                    m.u2 = 4
+                    m.textured = 1
+                    m.ambient = 1.0
+                    m.specular = 0.0
+                    m.diffuse = 1.0
+                    m.filter = 6
+                    m.uaddress = 1
+                    m.vaddress = 1
+                    m.flags = 1
+                    m.name = curgeomat.texfn.encode()
+                    m.maskname = b""
+
+                    curgeo.materials = [m]
+
+                    curgeo.tris = []
+                    curgeo.verts = []
+                    curgeo.colors = []
+                    curgeo.texcrd = []
+                elif words[0] == 'f':
+                    k = len(curgeo.verts)
+                    for t in words[1:]:
+                        c = t.split('/')
+                        curgeo.verts.append(objverts[int(c[0])-1])
+                        curgeo.texcrd.append(objtcrds[int(c[1])-1])
+                        curgeo.colors.append((255, 255, 255, 255))
+                    for i in range(len(words)-1-2):
+                        curgeo.tris.append((k+0,k+2+i,k+1+i,0))
+
+        return objgeos
+
+    @staticmethod
+    def importFromDFF(fn: str) -> 'Geometry':
+        with open(fn, 'rb') as dff:
+            cltyp, clsiz, clver = readpack(dff, 'III')
+            assert cltyp == 0x10
+            st, ss, sv = readpack(dff, 'III')
+            assert st == 1
+            numatoms, numlights, numcams = readpack(dff, 'III')
+
+            frtyp, frsiz, frver = readpack(dff, 'III')
+            assert frtyp == 0xE
+            dff.seek(frsiz, os.SEEK_CUR)
+
+            gltyp, glsiz, glver = readpack(dff, 'III')
+            assert gltyp == 0x1A
+            st, ss, sv = readpack(dff, 'III')
+            assert st == 1
+            numgeos, = readpack(dff, 'I')
+
+            geos = [Geometry(dff) for i in range(numgeos)]
+
+            print('done')
+        return geos
+
 class StringTable:
     def __init__(self):
         pass
@@ -433,3 +561,85 @@ class StringTable:
         else:
             self.save_noid(f)
             self.save_id(f)
+
+def readobjref(kwn):
+    i, = readpack(kwn, 'I')
+    if i == 0xFFFFFFFF:
+        return None
+    elif i == 0xFFFFFFFD:
+        return kwn.read(16)
+    else:
+        return (i & 63, (i>>6) & 2047, i >> 17)
+
+def writeobjref(kwn, ref):
+    if ref == None:
+        writepack(kwn, 'I', 0xFFFFFFFF)
+    elif type(ref) == bytes:
+        writepack(kwn, 'I', 0xFFFFFFFD)
+        kwn.write(ref)
+    elif type(ref) == tuple:
+        writepack(kwn, 'I', ref[0] | (ref[1] << 6) | (ref[2] << 17))
+
+class Ground:
+    def __init__(self, f=None, ver=1):
+        if f:
+            self.load(f, ver)
+        else:
+            self.tris = []
+            self.verts = []
+            bs = 1000000
+            self.aabb = (bs,bs,bs,-bs,-bs,-bs)
+            self.param1 = (0,1)
+            self.neobyte = 0
+            self.unkref = None
+            self.sectorobj = None
+            self.infwalls = []
+            self.finwalls = []
+            self.param2 = (0,0)
+    
+    def load(self, bi, ver):
+        self.numa, num_tris, num_verts = readpack(bi, "IHH")
+        self.tris = []
+        self.verts = []
+        for i in range(num_tris):
+            self.tris.append(readpack(bi, "HHH"))
+        for i in range(num_verts):
+            self.verts.append(readpack(bi, "fff"))
+        self.aabb = readpack(bi, "6f")
+        self.param1 = readpack(bi, "HH")
+        if ver >= 2:
+            self.neobyte, = readpack(bi, "B")
+            if ver >= 4:
+                self.unkref = readobjref(bi)
+            self.sectorobj = readobjref(bi)
+        num_infwalls, = readpack(bi, "H")
+        self.infwalls = []
+        for i in range(num_infwalls):
+            self.infwalls.append(readpack(bi, "HH"))
+        num_finwalls, = readpack(bi, "H")
+        self.finwalls = []
+        for i in range(num_finwalls):
+            self.finwalls.append(readpack(bi, "HHff"))
+        self.param2 = readpack(bi, "ff")
+
+    def save(self, bi, ver):
+        self.numa = len(self.tris)*6 + len(self.verts)*12 + len(self.infwalls)*4 + len(self.finwalls)*12
+        writepack(bi, 'IHH', self.numa, len(self.tris), len(self.verts))
+        for t in self.tris:
+            writepack(bi, 'HHH', *t)
+        for v in self.verts:
+            writepack(bi, 'fff', *v)
+        writepack(bi, '6f', *self.aabb)
+        writepack(bi, 'HH', *self.param1)
+        if ver >= 2:
+            writepack(bi, "B", self.neobyte)
+            if ver >= 4:
+                writeobjref(bi, self.unkref)
+            writeobjref(bi, self.sectorobj)
+        writepack(bi, "H", len(self.infwalls))
+        for w in self.infwalls:
+            writepack(bi, "HH", *w)
+        writepack(bi, "H", len(self.finwalls))
+        for w in self.finwalls:
+            writepack(bi, "HHff", *w)
+        writepack(bi, "ff", *self.param2)
