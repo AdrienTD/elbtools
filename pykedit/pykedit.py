@@ -280,7 +280,7 @@ def readmefile(evt):
         ctypes.windll.shell32.ShellExecuteW(0, "open", "readme.txt", 0, 0, 10)
 
 def aboutapp(evt):
-    wx.MessageBox("XXL Editor - Preview 2\nAdrienTD")
+    wx.MessageBox("XXL Editor - Release 3 BRP02\nAdrienTD")
 
 class SettingsDialog(wx.Dialog):
     def __init__(self, *args, **kw):
@@ -320,8 +320,18 @@ def showSettings(ev):
         with open('xxledit_settings.ini', 'w') as cf:
             config.write(cf)
 
+class ModelImportSettingsDialog(wx.Dialog):
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw, title='Model import settings')
+        self.ws = wx.BoxSizer(orient=wx.VERTICAL)
+        self.chkYZSwap = wx.CheckBox(self, label='Y/Z Swap')
+        self.chkFlipFaces = wx.CheckBox(self, label='Flip faces')
+        self.ebu = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
+        self.ws.AddMany((self.chkYZSwap, self.chkFlipFaces, self.ebu))
+        self.SetSizerAndFit(self.ws)
+
 def oldimportStrGeo(ev):
-    objfn = wx.FileSelector("Import sector geometry from OBJ", wildcard="Model file (*.dff;*.obj)|*.dff;*.obj|OBJ file (*.obj)|*.obj|DFF file (*.dff)|*.dff", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
+    objfn = wx.FileSelector("Import sector geometry", wildcard="Model file (*.dff;*.obj)|*.dff;*.obj|OBJ file (*.obj)|*.obj|DFF file (*.dff)|*.dff", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
     if not objfn.strip(): return
     #importStrGrounds(ev)
     #objtotest = "C:\\Users\\Adrien\\Downloads\\WF\\WF.obj"
@@ -364,12 +374,30 @@ def oldimportStrGeo(ev):
     print('gn:', gn, '/', len(geo))
 
 def importStrGeo(ev):
-    objfn = wx.FileSelector("Import sector geometry from OBJ", wildcard="Model file (*.dff;*.obj)|*.dff;*.obj|OBJ file (*.obj)|*.obj|DFF file (*.dff)|*.dff", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
+    objfn = wx.FileSelector("Import sector geometry", wildcard="Model file (*.dae;*.dff;*.obj)|*.dae;*.dff;*.obj|Wavefront OBJ file (*.obj)|*.obj|Renderware DFF file (*.dff)|*.dff|COLLADA DAE file (*.dae)|*.dae", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
     if not objfn.strip(): return
     if objfn.lower().endswith('.obj'):
         geos = Geometry.importFromOBJ(objfn)
+    elif objfn.lower().endswith('.dae'):
+        geos = Geometry.importFromDAE(objfn)
     else:
         geos = Geometry.importFromDFF(objfn)
+
+    misdlg = ModelImportSettingsDialog(frm)
+    misdlg.ShowModal()
+    if misdlg.chkYZSwap.GetValue():
+        for g in geos:
+            g.swap_yz()
+    if misdlg.chkFlipFaces.GetValue():
+        for g in geos:
+            g.flipFaces()
+
+    # Disable normal lightning + material color
+    for g in geos:
+        print('geo flags:', hex(g.flags), g.hasnorms)
+        g.flags &= 0xffffff8f
+        g.hasnorms = 0
+        g.normals = []
 
     geochunks = []
     kcl = sec.kclasses[(10,2)]
@@ -398,22 +426,38 @@ def importStrGrounds(ev):
     #objfn = "C:\\Users\\Adrien\\Downloads\\wf_for_xxl\\wft2_colli.obj"
     objfn = wx.FileSelector("Import sector collision from OBJ", wildcard="OBJ file (*.obj)|*.obj", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
     if not objfn.strip(): return
+
+    misdlg = ModelImportSettingsDialog(frm)
+    misdlg.ShowModal()
+    if misdlg.chkYZSwap.GetValue():
+        pass
+    if misdlg.chkFlipFaces.GetValue():
+        f2i,f3i = 3,2
+    else:
+        f2i,f3i = 2,3
+
     gnd = Ground()
     gnd.sectorobj = (12,4,sec.strnum)
     with open(objfn, 'r') as objfile:
         for ln in objfile:
             words = ln.split()
-            print(words)
+            #print(words)
             if len(words) <= 0:
                 continue
             if words[0] == 'v':
                 gnd.verts.append( tuple(float(k) for k in words[1:4]) )
             elif words[0] == 'f':
-                gnd.tris.append( tuple( int(t.split('/')[0])-1 for t in words[1:4] ) )
+                for i in range(0, len(words)-3):
+                    gnd.tris.append( tuple( int(t.split('/')[0])-1 for t in (words[1], words[i+f2i], words[i+f3i]) ) )
     bi = io.BytesIO()
     gnd.save(bi, sec.ver)
     bi.seek(os.SEEK_SET, 0)
     sec.kclasses[(12,18)].chunks[-1].data = bi.read()
+
+    # Fix sector boundary in CKMeshKluster
+    bya = bytearray(sec.kclasses[(12,66)].chunks[0].data)
+    bya[0:24] = struct.pack("6f", 1000, 1000, 1000, -1000, -1000, -1000)
+    sec.kclasses[(12,66)].chunks[0].data = bytes(bya)
 
 menu = wx.Menu()
 menu.Append(901, "Open...")
@@ -431,7 +475,7 @@ toolmenu.Append(3, "Export all geometries to OBJ")
 #toolmenu.Append(4, "Export collision of whole Rome")
 toolmenu.Append(5, "Export all textures")
 toolmenu.AppendSeparator()
-toolmenu.Append(13, "Import sector geometry from OBJ")
+toolmenu.Append(13, "Import sector geometry from OBJ/DFF")
 toolmenu.Append(14, "Import sector collision from OBJ")
 toolmenu.AppendSeparator()
 toolmenu.Append(10, "Find hex")

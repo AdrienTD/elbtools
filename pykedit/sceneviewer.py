@@ -355,14 +355,16 @@ class SceneViewer(wx.glcanvas.GLCanvas):
                         geo = geolist.geos[0]
                         glgeo = GLGeometry([t[0:3] for t in geo.tris], geo.verts, geo.texcrd, geo.colors)
                         #print('nummat', len(geo.materials))
-                        assert len(geo.materials) <= 1
+                        #assert len(geo.materials) <= 1
                         tex = ''
                         if geo.materials:
                             tex = geo.materials[0].name
                         self.geos[chk] = (glgeo, geolist.nextgeo, tex)
                         #print('Managed to load geometry 10,%i,%i' % (r,chk.cid))
                     except Exception as e:
-                        print('Could not load geometry 10,%i,%i: %s' % (r,chk.cid,e))
+                        print('Could not load geometry 10,%i,%i: %s %s' % (r,chk.cid,type(e),e))
+                        # import traceback
+                        # traceback.print_tb(e.__traceback__)
 ##        for g in self.geos.values():
 ##            print(g[0], g[1])
         

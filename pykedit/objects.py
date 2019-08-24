@@ -1,5 +1,7 @@
 import io,math,os,struct,wx
 from utils import *
+import minidae
+import xml.etree.ElementTree as ET
 
 class TextureDictionary:
     def __init__(self):
@@ -131,6 +133,12 @@ class GeometryList:
             f.seek(12, os.SEEK_CUR)
             self.nextgeo = getChunkFromInt(kfiles, *readpack(f, 'I'))
             f.seek(12 if (ver >= 3) else 8, os.SEEK_CUR)
+            if ver == 2 and False: # XXL2 Remaster
+                kifnamelen, = readpack(f, 'H')
+                f.seek(kifnamelen, os.SEEK_CUR)
+                matnamelen, = readpack(f, 'H')
+                f.seek(matnamelen + 4 + 64, os.SEEK_CUR)
+
             hasgeo, = readpack(f, "B")
             if hasgeo:
                 self.geos.append(Geometry(f))
@@ -144,6 +152,14 @@ class GeometryList:
             #writepack(f, "i", -1) # No next geometry right now
             for geo in self.geos:
                 geo.save(f)
+
+class RwFrame:
+    def __init__(self, bi):
+        self.read(bi)
+    def read(self, bi):
+        self.rotation = readpack(bi, '9f')
+        self.position = readpack(bi, '3f')
+        readpack(bi, 'II')
 
 class Geometry:
     class Material:
@@ -196,6 +212,7 @@ class Geometry:
             for i in range(self.num_verts):
                 self.texcrd.append(readpack(f, "ff"))
             f.seek(8*self.num_verts*(self.num_uvmaps-1), os.SEEK_CUR)
+            self.num_uvmaps = 1 # TODO: Support more than 1 UV map
 
         self.tris = []
         for i in range(self.num_tris):
@@ -212,25 +229,16 @@ class Geometry:
             for j in range(self.num_verts):
                 self.normals.append(readpack(f, "fff"))
         dbg('ml', hex(f.tell()))
-
-##        dbg('num_tris:', self.num_tris)
-##        dbg('num_verts:', self.num_verts)
-##        dbg('num_morph_targets:', self.num_morph_targets)
-##        dbg('colors:', self.colors)
-##        dbg('texcrd:', self.texcrd)
-##        dbg('tris:', self.tris)
-##        dbg('sphere:', self.sphere)
-##        dbg('verts:', self.verts)
         
         mlt, mls, mlv = readpack(f, "III")
         dbg(mlt,mls,mlv)
         assert mlt == 8
         stt, sts, stv = readpack(f, "III")
         dbg('sts:', sts)
-        assert stt == 1 and sts in (4,8)
+        assert stt == 1
         num_mats, = readpack(f, "I")
         dbg(num_mats)
-        if num_mats > 0:
+        for i in range(num_mats):
             readpack(f, "I")
         self.materials = []
         for i in range(num_mats):
@@ -257,9 +265,15 @@ class Geometry:
                 nat, nas, nav = readpack(f, "III")
                 assert nat == 2
                 m.maskname = f.read(nas).rstrip(b'\0\xDD')
-                dbg(m.name)
+                dbg(m.name, '/', m.maskname)
+                ext, exs, exv = readpack(f, "III")
+                assert ext == 3
+                f.seek(exs, os.SEEK_CUR)
             else:
                 m.name = b'NoTexture'
+            ext, exs, exv = readpack(f, "III")
+            assert ext == 3
+            f.seek(exs, os.SEEK_CUR)
             self.materials.append(m)
         
         #f.seek(mls, os.SEEK_CUR)
@@ -309,8 +323,8 @@ class Geometry:
         pushhs()
         writepack(f, "III", 1, 8, self.rwver)
         writepack(f, "I", len(self.materials))
-        if len(self.materials) > 0:
-            writepack(f, "i", -1) # ??
+        for m in range(len(self.materials)):
+            writepack(f, "i", -1)
         for m in self.materials:
             writepack(f, "III", 7, 0, self.rwver)
             pushhs()
@@ -322,7 +336,8 @@ class Geometry:
                 writepack(f, "III", 1, 4, self.rwver)
                 mfl = m.filter | (m.uaddress << 8) | (m.vaddress << 12) | (m.flags << 16)
                 writepack(f, "I", mfl)
-                for nam in (m.name, m.maskname):
+                for nnam in (m.name, m.maskname):
+                    nam = nnam[0:31]
                     ln = (len(nam)//4)*4 + 4
                     writepack(f, "III", 2, ln, self.rwver)
                     f.write(nam.ljust(ln, b'\x00'))
@@ -478,18 +493,137 @@ class Geometry:
 
             frtyp, frsiz, frver = readpack(dff, 'III')
             assert frtyp == 0xE
-            dff.seek(frsiz, os.SEEK_CUR)
+            #dff.seek(frsiz, os.SEEK_CUR)
+            st, ss, sv = readpack(dff, 'III')
+            assert st == 1
+            numframes, = readpack(dff, 'I')
+            frames = [RwFrame(dff) for i in range(numframes)]
+            for i in range(numframes):
+                ext, exs, exv = readpack(dff, "III")
+                assert ext == 3
+                dff.seek(exs, os.SEEK_CUR)
 
             gltyp, glsiz, glver = readpack(dff, 'III')
             assert gltyp == 0x1A
             st, ss, sv = readpack(dff, 'III')
             assert st == 1
             numgeos, = readpack(dff, 'I')
-
             geos = [Geometry(dff) for i in range(numgeos)]
+            # for g in geos:
+            #     g.swap_yz()
+
+            print('heyhey', numatoms, numframes, numgeos)
+
+            for i in range(numatoms):
+                att, ats, atv = readpack(dff, "III")
+                assert att == 0x14
+                st, ss, sv = readpack(dff, 'III')
+                assert st == 1
+                frindex, geoindex, aflags, auu = readpack(dff, 'IIII')
+                fr = frames[frindex]
+                geos[geoindex].transform(fr.rotation, fr.position)
+                #geos[geoindex].swap_yz()
+                geos[geoindex].sphere = (0,0,0, 1000000)
+                ext, exs, exv = readpack(dff, "III")
+                assert ext == 3
+                dff.seek(exs, os.SEEK_CUR)
 
             print('done')
         return geos
+
+    def importFromDAE(fn: str) -> 'Geometry':
+        dae = minidae.DaeDocument(ET.parse(fn))
+        rwgeos = []
+        rwgdic = {}
+        for geoname,geo in dae.geometries.items():
+            rwgdic[geoname] = []
+            print(geoname)
+            for tl in (*geo.mesh.triangles, *geo.mesh.polylists):
+                print(tl.material, tl.count)
+                rwg = Geometry()
+                rwgeos.append(rwg)
+                rwgdic[geoname].append(rwg)
+
+                rwg.rwver = 0x1803FFFF
+                rwg.flags = 0xe
+                rwg.num_uvmaps = 1
+                rwg.natflags = 0
+                rwg.sphere = (0,0,0,1000000)
+                rwg.haspos = 1
+                rwg.hasnorms = 0
+
+                m = Geometry.Material()
+                m.u1 = 0
+                m.color = 0xFF000000
+                m.u2 = 4
+                m.textured = 1
+                m.ambient,m.specular,m.diffuse = 1.0,0.0,1.0
+                m.filter = 6
+                m.uaddress,m.vaddress = 1,1
+                m.flags = 1
+                texname = dae.materials[tl.material]
+                print(texname)
+                m.name = os.path.splitext(texname)[0].encode() if texname else b'No_Texture'
+                m.maskname = b""
+
+                rwg.materials = [m]
+
+                rwg.tris = []
+                rwg.verts = []
+                rwg.colors = []
+                rwg.texcrd = []
+
+                pnt = 0
+                outindex = 0
+                for ix in range(tl.count):
+                    #print('Triangle', ix)
+                    #assert tl.vcount[ix] == 3
+                    firstindex = outindex
+                    for tc in range(tl.vcount[ix]):
+                        #print('Corner', tc)
+                        fullvert = {}
+                        for ipk,ipv in tl.inputs.items():
+                            ipres = ipv[0].getVertex(tl.pdata[pnt+ipv[1]], *ipk)
+                            fullvert.update(ipres)
+                        #print(fullvert)
+                        rwg.verts.append(fullvert[('POSITION',0)])
+                        uv = fullvert[('TEXCOORD',0)]
+                        rwg.texcrd.append((uv[0], 1-uv[1]))
+                        color = fullvert[('COLOR',0)]
+                        if(len(color) == 3):
+                            color = (*color, 1.0)
+                        assert len(color) == 4
+                        rwg.colors.append(tuple(int(255*i) for i in color))
+                        outindex += 1
+                        pnt += tl.stride
+                    for tr in range(tl.vcount[ix]-2):
+                        rwg.tris.append((firstindex+0, firstindex+tr+1, firstindex+tr+2, 0))
+                print('end triangles')
+        for vs in dae.visualscenes.values():
+            for node in vs.nodes.values():
+                if node.geo:
+                    rot = tuple(node.matrix[i] for i in (0,4,8,1,5,9,2,6,10))
+                    pos = tuple(node.matrix[i] for i in (3,7,11))
+                    for rwg in rwgdic[node.geo]:
+                        rwg.transform(rot, pos)
+                        rwg.sphere = (0,0,0,1000000)
+        return rwgeos
+
+    def transform(self, rotation, position):
+        newverts = []
+        m = rotation
+        t = position
+        def vtxtrans(v):
+            return tuple(sum(v[i]*m[3*i+j] for i in range(3)) + t[j]  for j in range(3))
+        self.verts = [vtxtrans(v) for v in self.verts]
+        self.sphere = (*vtxtrans(self.sphere[0:3]), self.sphere[3])
+
+    def swap_yz(self):
+        self.verts = [(v[0],v[2],-v[1]) for v in self.verts]
+        self.sphere = (self.sphere[0], self.sphere[2], -self.sphere[1], self.sphere[3])
+
+    def flipFaces(self):
+        self.tris = [(t[0],t[2],t[1],t[3]) for t in self.tris]
 
 class StringTable:
     def __init__(self):

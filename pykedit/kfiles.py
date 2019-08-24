@@ -298,6 +298,8 @@ class LevelFile(PackFile):
         if hasdrm:
             kwnfile.seek(self.obsoff+self.obssize, os.SEEK_SET)
         kwnfile.seek(4 if (self.ver >= 4) else 8, os.SEEK_CUR)  # self.ver >= 3 or >= 4 ?
+        if self.ver == 2 and True: # XXL2 Remaster
+            kwnfile.seek(-4, os.SEEK_CUR)
         for i in range(15):
             d = grpord[i]
             nsubchk,nextchkoff = dreadpack(kwnfile, "HI")

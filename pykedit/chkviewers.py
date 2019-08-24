@@ -335,8 +335,9 @@ class GeometryView(wx.glcanvas.GLCanvas):
                         if geo.colors:
                             c = geo.colors[x]
                             glColor4ub(c[0],c[1],c[2],c[3])
-                        u = geo.texcrd[x]
-                        glTexCoord2f(u[0],u[1])
+                        if geo.texcrd:
+                            u = geo.texcrd[x]
+                            glTexCoord2f(u[0],u[1])
                         v = geo.verts[x]
                         glVertex3f(v[0],v[1],v[2])
             glEnd()
