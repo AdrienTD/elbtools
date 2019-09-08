@@ -228,6 +228,8 @@ class ScenePanel(wx.Panel):
         self.spl2.SetSashGravity(1)
         self.Bind(wx.EVT_SIZE, self.OnSize)
         self.nodetree.Bind(wx.EVT_TREE_ITEM_ACTIVATED, self.OnTree)
+        self.nodetree.Bind(wx.EVT_TREE_ITEM_MENU, self.OnTreeMenu)
+        self.Bind(wx.EVT_MENU, self.OnExportDFF, id=1001)
 
         def insertnode(node, parent_tree_item):
             if kfiles[0] and kfiles[0].namedicts:
@@ -263,6 +265,8 @@ class ScenePanel(wx.Panel):
 
         self.selected_node = None
 
+        self.kfiles = kfiles
+
     def OnPropChanged(self, event):
         prop = event.GetProperty()
         if self.selected_node:
@@ -295,6 +299,131 @@ class ScenePanel(wx.Panel):
         self.p_posy.SetValue(node.matrix[13])
         self.p_posz.SetValue(node.matrix[14])
         self.viewer.Refresh()
+
+    def OnTreeMenu(self, event):
+        m = wx.Menu()
+        m.Append(1001, "Export to DFF")
+        self.nodetree_menuitem = event.GetItem()
+        self.PopupMenu(m)
+
+    def OnExportDFF(self, event):
+        print('export :)')
+        td = self.nodetree.GetItemData(self.nodetree_menuitem)
+        print(td)
+        print(td.geochk)
+
+        geochk = td.geochk
+        #gl = GeometryList(io.BytesIO(geochk.data), geochk.ver, self.kfiles)
+        nextgeo,geoflags = struct.unpack('<II', geochk.data[0:8])
+        if geoflags & 0x2000:
+            num_geos, = struct.unpack('<I', geochk.data[8:0xC])
+            cht,chs,chv = struct.unpack('<III', geochk.data[0xC:0x18])
+            geooff = 0x18 + chs + 0x28
+        else:
+            geooff = 0x30
+        rwgeotype,rwgeosize,rwver = struct.unpack('<III', geochk.data[geooff:geooff+12])
+        assert rwgeotype == 0xF
+        #rwver = 0x1803FFFF
+
+        # Get bones
+        ha = io.BytesIO(td.chunk.data[0xBF:])
+        hat,has,hav = readpack(ha, 'III')
+        assert hat == 0x11E
+        ha_ver,ha_nodeId,ha_numNodes,ha_flags,ha_kfs = readpack(ha, 'IIIII')
+        parbonestack = [0]
+        parbone = 0
+        bones = []
+
+        for i in range(ha_numNodes):
+            uid,nindex,flags = readpack(ha, 'III')
+            assert nindex == i
+            bones.append((uid,parbone))
+            if flags & 2: # Push
+                parbonestack.append(parbone)
+            parbone = i
+            if flags & 1: # Pop
+                parbone = parbonestack.pop()
+
+        print('bones:')
+        for i in bones:
+            print(i)
+        print('stack', parbonestack)
+
+        with open('node.dff', 'wb') as dff:
+            headstack = []
+            def pushhs():
+                headstack.append(dff.tell())
+            def pophs():
+                p = headstack.pop()
+                o = dff.tell()
+                dff.seek(p-8, os.SEEK_SET)
+                writepack(dff, "I", o-p)
+                dff.seek(o, os.SEEK_SET)
+
+            writepack(dff, 'III', 0x10, 0, rwver)
+            pushhs()
+
+            writepack(dff, 'III', 1, 12, rwver)
+            writepack(dff, 'III', 1, 0, 0)
+
+            #dff.write(td.chunk.data[0x5F:])
+
+            # Frame list
+            writepack(dff, 'III', 0xE, 0, rwver)
+            pushhs()
+            writepack(dff, 'III', 1, 0, rwver)
+            pushhs()
+            writepack(dff, 'I', 1 + len(bones)) # Number of frames
+            # Root frame
+            writepack(dff, '12fiI', 1,0,0, 0,1,0, 0,0,1, 0,0,0, -1, 0x00020003)
+            # First root bone
+            dff.write(td.chunk.data[0x7B:0x7B+0x30])
+            writepack(dff, 'iI', 0, 3)
+            # Bones
+            for b in bones[1:]:
+                writepack(dff, '12fiI', 1,0,0, 0,1,0, 0,0,1, 0,0,0, b[1]+1, 3)
+            pophs() # End frame list struct
+
+            writepack(dff, 'III', 3, 12 + 9, rwver) # Extension chunk for first root frame
+            writepack(dff, 'III', 0x253F2FE, 9, rwver)
+            dff.write(b"ClumpRoot")
+            hanimext = bytearray(td.chunk.data[0xB3:])
+            hanimext[0x1C:0x20] = struct.pack('I', 0)
+            dff.write(hanimext) # Extension for second frame / first bone
+
+            # Extensions for bones
+            for b in bones[1:]:
+                writepack(dff, 'III', 3, (12 + 8) + (12 + 12), rwver)
+                writepack(dff, 'III', 0x253F2FE, 8, rwver)
+                dff.write(b'Bone%04i' % b[0])
+                writepack(dff, 'III', 0x11E, 12, rwver)
+                writepack(dff, 'III', 0x100, b[0], 0)
+
+            pophs() # End frame list
+
+            # Geometry list
+            writepack(dff, 'III', 0x1A, 0, rwver)
+            pushhs()
+            writepack(dff, 'III', 1, 4, rwver)
+            writepack(dff, 'I', 1)
+
+            #gl.geos[0].save(dff, saveAtomic=False)
+            dff.write(geochk.data[geooff:geooff+12+rwgeosize])
+
+            pophs() # End geometry list
+
+            # Atomic
+            writepack(dff, 'III', 0x14, 0, rwver)
+            pushhs()
+            writepack(dff, 'III', 1, 0x10, rwver)
+            writepack(dff, 'IIII', 0, 0, 4, 0)
+            writepack(dff, 'III', 3, 20, rwver)
+            writepack(dff, 'III', 0x1F, 8, rwver) # Right to render
+            writepack(dff, 'II', 0x116, 1)
+            pophs() # End atomic
+
+            writepack(dff, 'III', 3, 0, rwver) # Clump extensions
+            pophs() # End clump
 
 class SceneViewer(wx.glcanvas.GLCanvas):
     def __init__(self, kfiles, panel, *args, **kw):

@@ -281,7 +281,7 @@ class Geometry:
         dbg('yes')
         self.valid = True
 
-    def save(self, f):
+    def save(self, f, saveAtomic=True):
         headstack = []
         def pushhs():
             headstack.append(f.tell())
@@ -291,10 +291,13 @@ class Geometry:
             f.seek(p-8, os.SEEK_SET)
             writepack(f, "I", o-p)
             f.seek(o, os.SEEK_SET)
-        writepack(f, "III", 0x14, 0, self.rwver)
-        pushhs()
-        writepack(f, "III", 1, 16, self.rwver)
-        writepack(f, "4I", 0,0,5,0)
+
+        if saveAtomic:
+            writepack(f, "III", 0x14, 0, self.rwver)
+            pushhs()
+            writepack(f, "III", 1, 16, self.rwver)
+            writepack(f, "4I", 0,0,5,0)
+            
         writepack(f, "III", 0xF, 0, self.rwver)
         pushhs()
         writepack(f, "III", 1, 0, self.rwver)
@@ -351,8 +354,9 @@ class Geometry:
         writepack(f, "III", 3, 0, self.rwver)
         pophs() #End geometry
 
-        writepack(f, "III", 3, 0, self.rwver)
-        pophs() #End atomic
+        if saveAtomic:
+            writepack(f, "III", 3, 0, self.rwver)
+            pophs() #End atomic
 
         print(len(headstack))
 
@@ -583,13 +587,14 @@ class Geometry:
                         #print('Corner', tc)
                         fullvert = {}
                         for ipk,ipv in tl.inputs.items():
+                            print(ipv, pnt)
                             ipres = ipv[0].getVertex(tl.pdata[pnt+ipv[1]], *ipk)
                             fullvert.update(ipres)
                         #print(fullvert)
                         rwg.verts.append(fullvert[('POSITION',0)])
-                        uv = fullvert[('TEXCOORD',0)]
+                        uv = fullvert.get(('TEXCOORD',0), (0.0,0.0))
                         rwg.texcrd.append((uv[0], 1-uv[1]))
-                        color = fullvert[('COLOR',0)]
+                        color = fullvert.get(('COLOR',0), (1.0,1.0,1.0,1.0))
                         if(len(color) == 3):
                             color = (*color, 1.0)
                         assert len(color) == 4

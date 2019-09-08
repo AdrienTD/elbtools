@@ -178,6 +178,7 @@ class GeometryView(wx.glcanvas.GLCanvas):
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
         self.Bind(wx.EVT_CONTEXT_MENU, self.OnContextMenu)
         self.Bind(wx.EVT_MENU, self.CmdSaveOBJ, id=1000)
+        self.Bind(wx.EVT_MENU, self.CmdLoadDFF, id=1005)
         self.Bind(wx.EVT_MENU, self.CmdTestSaveRw, id=9001)
 
         for i in (1001,1002,1003,1004):
@@ -351,10 +352,11 @@ class GeometryView(wx.glcanvas.GLCanvas):
         m.Append(1004, "Next costume\tP")
         m.AppendSeparator()
         m.Append(1000, "Save as OBJ...")
-        m.Check(1001, self.wireframe)
-        m.Check(1002, self.shownextgeos)
+        m.Append(1005, "Import from DFF...")
         m.AppendSeparator()
         m.Append(9001, "Test resaving in rw format")
+        m.Check(1001, self.wireframe)
+        m.Check(1002, self.shownextgeos)
         self.PopupMenu(m)
 
     def CmdChangeView(self, evt):
@@ -395,6 +397,70 @@ class GeometryView(wx.glcanvas.GLCanvas):
         with open('test.dff', 'wb') as f:
             self.geolists[0].save(f, self.chk.ver)
             writepack(f, "II", self.chk.getRefInt(), 0)
+
+    def CmdLoadDFF(self, evt):
+        fn = wx.FileSelector("Import CGeometry from DFF", wildcard="DFF file (*.dff)|*.dff", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
+        if not fn.strip(): return
+        with open(fn, 'rb') as dff:
+            cut,cus,cuv = readpack(dff, 'III')
+            assert cut == 0x10
+            stt,sts,stv = readpack(dff, 'III')
+            assert stt == 1 and sts == 12
+            numAtomics,numLights,numCameras = readpack(dff, 'III')
+
+            # Skip the frame list
+            flt,fls,flv = readpack(dff, 'III')
+            assert flt == 0xE
+            dff.seek(fls, os.SEEK_CUR)
+
+            # Geometry list
+            glt,gls,glv = readpack(dff, 'III')
+            assert glt == 0x1A
+            stt,sts,stv = readpack(dff, 'III')
+            assert stt == 1 and sts == 4
+            numGeos, = readpack(dff, 'I')
+
+            # Now we are at the geometry!
+            geohead = dff.read(12)
+            get,ges,gev = struct.unpack('<III', geohead)
+            assert get == 0xF
+            geodata = dff.read(ges)
+
+            # Chunk header
+            chkdat = self.chk.data
+            nextgeo,flags = struct.unpack('<II', chkdat[0:8])
+            chkend = chkdat[-8:]
+
+            # if flags & 0x2000:
+            #     framelists = []
+            #     atomics = []
+            #     numgeos, = struct.unpack('<I', chkdat[8:12])
+            #     pos = 12
+            #     for g in range(numgeos):
+            #         flt,fls,flv = struct.unpack('<III', chkdat[pos:pos+12])
+            #         assert flt == 0xE
+            #         framelists.append(chkdat[pos:pos+12+fls])
+            #         pos += 12+fls
+            #         att,ats,atv = struct.unpack('<III', chkdat[pos:pos+12])
+            #         assert att == 0x14
+            #         atomics.append(chkdat[pos:pos+12+ats])
+            #         pos += 12+ats
+
+            # flags &= 0xFFFF00FF
+            newdat = struct.pack('<II', 0xFFFFFFFF, 0x14)
+            newdat += struct.pack('<III', 0x14, 12+16+12+ges+12+12+8, gev)
+            newdat += struct.pack('<III', 1, 16, gev)
+            newdat += struct.pack('<4I', 0, 0, 5, 0)
+            newdat += geohead
+            newdat += geodata
+            newdat += struct.pack('<III', 3, 12+8, gev)
+            newdat += struct.pack('<III', 0x1F, 8, gev)
+            newdat += struct.pack('<II', 0x116, 1)
+            newdat += chkend
+            
+            self.chk.data = newdat
+
+        print(self.chk)
 
 class MoreSpecificInfoView(wx.TextCtrl):
     def __init__(self, chk, *args, **kw):
