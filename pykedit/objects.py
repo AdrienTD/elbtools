@@ -579,31 +579,50 @@ class Geometry:
 
                 pnt = 0
                 outindex = 0
+                uverts = []
+                uverthits = 0
                 for ix in range(tl.count):
                     #print('Triangle', ix)
                     #assert tl.vcount[ix] == 3
                     firstindex = outindex
+                    uindices = []
                     for tc in range(tl.vcount[ix]):
                         #print('Corner', tc)
                         fullvert = {}
                         for ipk,ipv in tl.inputs.items():
-                            print(ipv, pnt)
+                            #print(ipv, pnt)
                             ipres = ipv[0].getVertex(tl.pdata[pnt+ipv[1]], *ipk)
                             fullvert.update(ipres)
                         #print(fullvert)
-                        rwg.verts.append(fullvert[('POSITION',0)])
+                        pos = fullvert[('POSITION',0)]
                         uv = fullvert.get(('TEXCOORD',0), (0.0,0.0))
-                        rwg.texcrd.append((uv[0], 1-uv[1]))
                         color = fullvert.get(('COLOR',0), (1.0,1.0,1.0,1.0))
                         if(len(color) == 3):
                             color = (*color, 1.0)
                         assert len(color) == 4
-                        rwg.colors.append(tuple(int(255*i) for i in color))
+
+                        # rwg.verts.append(pos)
+                        # rwg.texcrd.append((uv[0], 1-uv[1]))
+                        # rwg.colors.append(tuple(int(255*i) for i in color))
+                        vert = (pos, uv, color)
+                        if vert in uverts:
+                            uindices.append(uverts.index(vert))
+                            uverthits += 1
+                        else:
+                            uindices.append(len(uverts))
+                            uverts.append(vert)
+
                         outindex += 1
                         pnt += tl.stride
                     for tr in range(tl.vcount[ix]-2):
-                        rwg.tris.append((firstindex+0, firstindex+tr+1, firstindex+tr+2, 0))
-                print('end triangles')
+                        #rwg.tris.append((firstindex+0, firstindex+tr+1, firstindex+tr+2, 0))
+                        rwg.tris.append((uindices[0], uindices[tr+1], uindices[tr+2], 0))
+                for v in uverts:
+                    pos,uv,color = v
+                    rwg.verts.append(pos)
+                    rwg.texcrd.append((uv[0], 1-uv[1]))
+                    rwg.colors.append(tuple(int(255*i) for i in color))
+                print('end triangles, uverts hits:', uverthits)
         for vs in dae.visualscenes.values():
             for node in vs.nodes.values():
                 if node.geo:

@@ -2,14 +2,14 @@
 GAME.KWN/.KGC/.KP2
 ----------------
 
-num_classes	4	Number of classes
-num2		4	?
+num_objects	4	Number of objects
+gameMgrId	4	Game manager class ID
 
-[For every class]
-	type		4	Class Type
+[For every object]
+	type		4	Class Category
 	id		4	Class ID
-	nextoff		4	Absolute offset to next class
-	data		?	Data of class
+	nextoff		4	Absolute offset to next object
+	data		?	Serialized data of the object
 
 ----------------
 LVL??.KWN
@@ -23,7 +23,7 @@ numa		4	?
 [For each 15 class types]
 	numclasses	2	Num of classes
 	[For each class]
-		num_tot_chks	2	Number of chunks in total (including LVL and STR)
+		num_tot_chks	2	Number of chunks (class instances) in total (including LVL and STR)
 		num_lvl_chks	2	Number of common sector (LVL) chunks
 		info		1	0=?, 1=Irreplaceable, 2=Replaceable
 
