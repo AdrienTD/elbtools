@@ -236,7 +236,14 @@ class LevelFile(PackFile):
             self.lvlnum = int(bfn[tnpos+3:tnpos+5])
             print('lvlnum:', self.lvlnum)
         kwnfile = open(fn, 'rb')
-        if self.ver <= 1: self.numz, = dreadpack(kwnfile, "I")
+        self.nodrmformat = False
+        if self.ver <= 1:
+            self.numz, = dreadpack(kwnfile, "I")
+            if self.numz == 0x65747341:
+                if dreadpack(kwnfile, "I")[0] == 0x20786972:   # what about case with Aste and something else than rix?
+                    hasdrm = False
+                    self.nodrmformat = True
+                    self.numz, = dreadpack(kwnfile, "I")
         dhfile = kwnfile
         self.encryptedHeader = None
         if hasdrm or ver >= 3:
@@ -290,11 +297,12 @@ class LevelFile(PackFile):
                     kcl.ques1 = []
                     kcl.ques2 = []
                 self.kclasses[(i,j)] = kcl
-        # dbg('a', hex(kwnfile.tell()))
+        print('head end', hex(kwnfile.tell()))
         # if self.ver >= 3: kwnfile.seek(8, os.SEEK_CUR)
         # elif self.ver == 2: kwnfile.seek(16 if hasdrm else 8, os.SEEK_CUR)
         # else: kwnfile.seek(12 if hasdrm else 8, os.SEEK_CUR)
         # dbg('a', hex(kwnfile.tell()))
+        self.hasdrm = hasdrm
         if hasdrm:
             kwnfile.seek(self.obsoff+self.obssize, os.SEEK_SET)
         kwnfile.seek(4 if (self.ver >= 4) else 8, os.SEEK_CUR)  # self.ver >= 3 or >= 4 ?
@@ -384,6 +392,8 @@ class LevelFile(PackFile):
         #logfile.close()
     def save(self,fn):
         kfile = open(fn, 'wb')
+        if self.nodrmformat:
+            kfile.write(b'Asterix ')
         if self.ver <= 1:
             writepack(kfile, "I", self.numz)
         if self.encryptedHeader:
@@ -466,6 +476,10 @@ class LevelFile(PackFile):
             fixoffsets(kfile, nxtclass, 0)
         nxtgrps.append(kfile.tell())
         fixoffsets(kfile, nxtgrps, 2)
+
+        # Name table
+        writepack(kfile, "II", 0, 0)
+
         kfile.close()
 
 class SectorFile(PackFile):

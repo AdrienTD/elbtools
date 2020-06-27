@@ -280,7 +280,7 @@ def readmefile(evt):
         ctypes.windll.shell32.ShellExecuteW(0, "open", "readme.txt", 0, 0, 10)
 
 def aboutapp(evt):
-    wx.MessageBox("XXL Editor - Release 3 BRP02\nAdrienTD")
+    wx.MessageBox("XXL Editor - Release 3\nAdrienTD")
 
 class SettingsDialog(wx.Dialog):
     def __init__(self, *args, **kw):
@@ -321,57 +321,18 @@ def showSettings(ev):
             config.write(cf)
 
 class ModelImportSettingsDialog(wx.Dialog):
-    def __init__(self, *args, **kw):
+    def __init__(self, geooptions, *args, **kw):
         super().__init__(*args, **kw, title='Model import settings')
         self.ws = wx.BoxSizer(orient=wx.VERTICAL)
         self.chkYZSwap = wx.CheckBox(self, label='Y/Z Swap')
         self.chkFlipFaces = wx.CheckBox(self, label='Flip faces')
         self.ebu = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
-        self.ws.AddMany((self.chkYZSwap, self.chkFlipFaces, self.ebu))
+        self.ws.AddMany((self.chkYZSwap, self.chkFlipFaces))
+        if geooptions:
+            self.rbMethod = wx.RadioBox(self, label='Method', choices=['Insert', 'Replace'])
+            self.ws.Add(self.rbMethod)
+        self.ws.Add(self.ebu)
         self.SetSizerAndFit(self.ws)
-
-def oldimportStrGeo(ev):
-    objfn = wx.FileSelector("Import sector geometry", wildcard="Model file (*.dff;*.obj)|*.dff;*.obj|OBJ file (*.obj)|*.obj|DFF file (*.dff)|*.dff", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
-    if not objfn.strip(): return
-    #importStrGrounds(ev)
-    #objtotest = "C:\\Users\\Adrien\\Downloads\\WF\\WF.obj"
-    #objtotest = "C:\\Users\\Adrien\\Downloads\\wf_for_xxl\\wft2.obj"
-    print(objfn)
-    if objfn.lower().endswith('.obj'):
-        geo = Geometry.importFromOBJ(objfn)
-    else:
-        geo = Geometry.importFromDFF(objfn)
-    print('Import result:', geo)
-    # regeo = None
-    # with open("objtorw.dff", "wb") as f:
-    #     geo[0].save(f)
-    # with open("objtorw.dff", "rb") as f:
-    #     regeo = Geometry(f)
-    # print('done')
-
-    # Get Geometry reference in CSGSectorRoot of STR file
-    ver = sec.kclasses[(11,2)].chunks[0].ver
-    ngm = 0x51 if ver >= 2 else 0x4F    # Node's geometry reference address
-    gnm = 0x0C if ver >= 2 else 0       # Geometry's next geo address
-    ghs = 0x19 if ver >= 2 else 8       # Geometry's header size
-    nextgeoref, = struct.unpack('I', sec.kclasses[(11,2)].chunks[0].data[ngm:ngm+4])
-
-    gn = 0
-    while nextgeoref != 0xFFFFFFFF:
-        if gn >= len(geo):
-            break
-        geochk = getChunkFromInt((sec,), nextgeoref)
-        nextgeoref, = struct.unpack('I', geochk.data[gnm:gnm+4])
-        bb = io.BytesIO()
-        bb.write(geochk.data[0:ghs])
-        geo[gn].save(bb)
-        if ver <= 1:
-            bb.write(geochk.data[-8:])
-        bb.seek(os.SEEK_SET, 0)
-        geochk.data = bb.read()
-        gn += 1
-
-    print('gn:', gn, '/', len(geo))
 
 def importStrGeo(ev):
     objfn = wx.FileSelector("Import sector geometry", wildcard="Model file (*.dae;*.dff;*.obj)|*.dae;*.dff;*.obj|Wavefront OBJ file (*.obj)|*.obj|Renderware DFF file (*.dff)|*.dff|COLLADA DAE file (*.dae)|*.dae", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
@@ -383,8 +344,10 @@ def importStrGeo(ev):
     else:
         geos = Geometry.importFromDFF(objfn)
 
-    misdlg = ModelImportSettingsDialog(frm)
-    misdlg.ShowModal()
+    misdlg = ModelImportSettingsDialog(sec.ver <= 1, frm)
+    dlgres = misdlg.ShowModal()
+    if dlgres != wx.ID_OK:
+        return
     if misdlg.chkYZSwap.GetValue():
         for g in geos:
             g.swap_yz()
@@ -399,36 +362,62 @@ def importStrGeo(ev):
         g.hasnorms = 0
         g.normals = []
 
-    geochunks = []
-    kcl = sec.kclasses[(10,2)]
-    for geo in geos:
-        chk = KChunk(kcl, kcl.chunks[-1].cid+1, b'', 1)
-        geochunks.append(chk)
-        kcl.chunks.append(chk)
+    # Get Geometry reference in CSGSectorRoot of STR file
+    ver = sec.kclasses[(11,2)].chunks[0].ver
+    ngm = 0x51 if ver >= 2 else 0x4F    # Node's geometry reference address
+    gnm = 0x0C if ver >= 2 else 0       # Geometry's next geo address
+    ghs = 0x19 if ver >= 2 else 8       # Geometry's header size
+    nextgeoref, = struct.unpack('I', sec.kclasses[(11,2)].chunks[0].data[ngm:ngm+4])
 
-    for i in range(len(geochunks)):
-        gli = GeometryList()
-        gli.u1 = geochunks[i+1].getRefInt() if (i < len(geochunks)-1) else 0xFFFFFFFF
-        gli.flags = 0x12
-        gli.geos = [geos[i]]
-        f = io.BytesIO()
-        gli.save(f, ver=1)
-        writepack(f, "II", geochunks[i].getRefInt(), 6)
-        f.seek(0, os.SEEK_SET)
-        geochunks[i].data = f.read()
+    # Insert method
+    if (sec.ver <= 1) and (misdlg.rbMethod.GetSelection() == 0):
+        geochunks = []
+        kcl = sec.kclasses[(10,2)]
+        for geo in geos:
+            chk = KChunk(kcl, kcl.chunks[-1].cid+1, b'', 1)
+            geochunks.append(chk)
+            kcl.chunks.append(chk)
 
-    strroot = sec.kclasses[(11,2)].chunks[0]
-    sra = bytearray(strroot.data)
-    sra[0x4f:0x53] = struct.pack("I", geochunks[0].getRefInt())
-    strroot.data = bytes(sra)
+        for i in range(len(geochunks)):
+            gli = GeometryList()
+            gli.u1 = geochunks[i+1].getRefInt() if (i < len(geochunks)-1) else 0xFFFFFFFF
+            gli.flags = 0x12
+            gli.geos = [geos[i]]
+            f = io.BytesIO()
+            gli.save(f, ver=ver)
+            writepack(f, "II", geochunks[i].getRefInt(), 6)
+            f.seek(0, os.SEEK_SET)
+            geochunks[i].data = f.read()
+
+        # Set geometry reference in CSGSectorRoot
+        strroot = sec.kclasses[(11,2)].chunks[0]
+        sra = bytearray(strroot.data)
+        sra[ngm:ngm+4] = struct.pack("I", geochunks[0].getRefInt())
+        strroot.data = bytes(sra)
+
+    # Replace method
+    else:
+        gn = 0
+        while (nextgeoref != 0xFFFFFFFF) and (gn < len(geos)):
+            geochk = getChunkFromInt((sec,), nextgeoref)
+            nextgeoref, = struct.unpack('I', geochk.data[gnm:gnm+4])
+            bb = io.BytesIO()
+            bb.write(geochk.data[0:ghs])
+            geos[gn].save(bb)
+            if ver <= 1:
+                bb.write(geochk.data[-8:])
+            bb.seek(os.SEEK_SET, 0)
+            geochk.data = bb.read()
+            gn += 1
 
 def importStrGrounds(ev):
-    #objfn = "C:\\Users\\Adrien\\Downloads\\wf_for_xxl\\wft2_colli.obj"
     objfn = wx.FileSelector("Import sector collision from OBJ", wildcard="OBJ file (*.obj)|*.obj", flags=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST)
     if not objfn.strip(): return
 
-    misdlg = ModelImportSettingsDialog(frm)
-    misdlg.ShowModal()
+    misdlg = ModelImportSettingsDialog(False, frm)
+    dlgres = misdlg.ShowModal()
+    if dlgres != wx.ID_OK:
+        return
     if misdlg.chkYZSwap.GetValue():
         pass
     if misdlg.chkFlipFaces.GetValue():
@@ -475,7 +464,7 @@ toolmenu.Append(3, "Export all geometries to OBJ")
 #toolmenu.Append(4, "Export collision of whole Rome")
 toolmenu.Append(5, "Export all textures")
 toolmenu.AppendSeparator()
-toolmenu.Append(13, "Import sector geometry from OBJ/DFF")
+toolmenu.Append(13, "Import sector geometry from OBJ/DFF/DAE")
 toolmenu.Append(14, "Import sector collision from OBJ")
 toolmenu.AppendSeparator()
 toolmenu.Append(10, "Find hex")

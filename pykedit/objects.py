@@ -152,6 +152,9 @@ class GeometryList:
             #writepack(f, "i", -1) # No next geometry right now
             for geo in self.geos:
                 geo.save(f)
+        elif ver >= 2:
+            writepack(f, 'IIII', 0xFFFFFFFF, 0xFFFFFFFF, 0x020086, self.u1)
+            # Problem -> need to create a CMaterial
 
 class RwFrame:
     def __init__(self, bi):
@@ -439,7 +442,7 @@ class Geometry:
 
                 elif words[0] == 'usemtl':
                     curgeo = Geometry()
-                    curgeomat = objmats[words[1]]
+                    curgeomat = objmats.get(words[1], None)
                     objgeos.append(curgeo)
                     curgeonum += 1
 
@@ -465,7 +468,7 @@ class Geometry:
                     m.uaddress = 1
                     m.vaddress = 1
                     m.flags = 1
-                    m.name = curgeomat.texfn.encode()
+                    m.name = curgeomat.texfn.encode() if curgeomat else b"NO_TEXTURE_PLEASE"
                     m.maskname = b""
 
                     curgeo.materials = [m]
@@ -479,7 +482,10 @@ class Geometry:
                     for t in words[1:]:
                         c = t.split('/')
                         curgeo.verts.append(objverts[int(c[0])-1])
-                        curgeo.texcrd.append(objtcrds[int(c[1])-1])
+                        if len(c) >= 2:
+                            curgeo.texcrd.append(objtcrds[int(c[1])-1] if c[1] else (0, 0))
+                        else:
+                            curgeo.texcrd.append((0,0))
                         curgeo.colors.append((255, 255, 255, 255))
                     for i in range(len(words)-1-2):
                         curgeo.tris.append((k+0,k+2+i,k+1+i,0))
@@ -535,6 +541,7 @@ class Geometry:
             print('done')
         return geos
 
+    @staticmethod
     def importFromDAE(fn: str) -> 'Geometry':
         dae = minidae.DaeDocument(ET.parse(fn))
         rwgeos = []

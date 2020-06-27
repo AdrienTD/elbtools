@@ -45,10 +45,11 @@ STR??.KWN
 	[For each class]
 		num_str_chk	2	Number of noncommun sector (STR) chunks
 
-[For each 15 class types]
+[For each 15 class categories]
 	numclasses	2	Num of classes
-	nexttype	4	Abs offset to next type
+	nextcat		4	Abs offset to next category
 	[For each class]
+		nexttype	4	Abs offset to next class
 		startid		2	ID of first chunk (chunk IDs before are for LVL)
 		[For each chunk (see num_str_chk)]
 			nextoff		4	Abs offset to next chunk
